@@ -48,9 +48,11 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
       audio: false,
       loop: false,
       onVideoDecode: () => {
-        // Video started
+        console.log(`Video started decoding for camera ${cameraId}`);
       }
     });
+
+    console.log(`JSMpeg player initialized for camera ${cameraId} at ${url}`);
 
     return () => {
       player.destroy();
@@ -97,6 +99,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newCam, setNewCam] = useState({ name: '', rtsp_url: '' });
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+  const [selectedRecordings, setSelectedRecordings] = useState<string[]>([]);
   
   // User Management states
   const [users, setUsers] = useState<any[]>([]);
@@ -151,8 +154,52 @@ export default function App() {
       const res = await fetchWithAuth(`/api/recordings/${cameraId}`);
       const data = await res.json();
       setRecordings(data);
+      setSelectedRecordings([]); // Reset selection on camera change
     } catch (err) {
       console.error('Failed to fetch recordings', err);
+    }
+  };
+
+  const deleteRecording = async (filename: string) => {
+    if (!selectedCamera || !confirm('Deseja excluir esta gravação?')) return;
+    try {
+      const res = await fetchWithAuth(`/api/recordings/${selectedCamera.id}/${filename}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchRecordings(selectedCamera.id);
+      }
+    } catch (err) {
+      console.error('Failed to delete recording', err);
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (!selectedCamera || selectedRecordings.length === 0 || !confirm(`Deseja excluir as ${selectedRecordings.length} gravações selecionadas?`)) return;
+    try {
+      const res = await fetchWithAuth('/api/recordings/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({
+          recordings: selectedRecordings.map(filename => ({ cameraId: selectedCamera.id, filename }))
+        })
+      });
+      if (res.ok) {
+        fetchRecordings(selectedCamera.id);
+      }
+    } catch (err) {
+      console.error('Failed to bulk delete recordings', err);
+    }
+  };
+
+  const toggleRecordingSelection = (filename: string) => {
+    setSelectedRecordings(prev => 
+      prev.includes(filename) ? prev.filter(f => f !== filename) : [...prev, filename]
+    );
+  };
+
+  const toggleAllRecordings = () => {
+    if (selectedRecordings.length === recordings.length) {
+      setSelectedRecordings([]);
+    } else {
+      setSelectedRecordings(recordings.map(r => r.name));
     }
   };
 
@@ -498,67 +545,102 @@ export default function App() {
               <div className="col-span-12 lg:col-span-8 space-y-6">
                 {selectedCamera ? (
                   <div className="bg-white/5 border border-white/5 rounded-[2.5rem] overflow-hidden">
-                    <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
-                      <div>
-                        <h2 className="text-2xl font-bold">{selectedCamera.name}</h2>
-                        <p className="text-xs text-white/40 font-mono mt-1">Histórico de Gravações</p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-[10px] font-mono text-white/40 uppercase">Total de Arquivos</p>
-                          <p className="text-sm font-bold">{recordings.length}</p>
+                      <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+                        <div>
+                          <h2 className="text-2xl font-bold">{selectedCamera.name}</h2>
+                          <p className="text-xs text-white/40 font-mono mt-1">Histórico de Gravações</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          {selectedRecordings.length > 0 && (
+                            <button 
+                              onClick={bulkDelete}
+                              className="flex items-center gap-2 bg-red-500 text-black px-4 py-2 rounded-xl text-xs font-bold hover:bg-red-400 transition-all shadow-lg shadow-red-500/20"
+                            >
+                              <Trash2 size={14} />
+                              Excluir Selecionados ({selectedRecordings.length})
+                            </button>
+                          )}
+                          <div className="text-right">
+                            <p className="text-[10px] font-mono text-white/40 uppercase">Total de Arquivos</p>
+                            <p className="text-sm font-bold">{recordings.length}</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {playingVideo && (
-                      <div className="aspect-video bg-black relative group">
-                        <video src={playingVideo} controls autoPlay className="w-full h-full" />
-                        <button onClick={() => setPlayingVideo(null)} className="absolute top-6 right-6 bg-black/60 backdrop-blur-md p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Square size={20} />
-                        </button>
-                      </div>
-                    )}
+                      {playingVideo && (
+                        <div className="aspect-video bg-black relative group">
+                          <video src={playingVideo} controls autoPlay className="w-full h-full" />
+                          <button onClick={() => setPlayingVideo(null)} className="absolute top-6 right-6 bg-black/60 backdrop-blur-md p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Square size={20} />
+                          </button>
+                        </div>
+                      )}
 
-                    <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="text-[10px] font-mono uppercase tracking-widest text-white/20 border-b border-white/5">
-                            <th className="px-8 py-4 font-medium">Arquivo</th>
-                            <th className="px-8 py-4 font-medium">Data/Hora</th>
-                            <th className="px-8 py-4 font-medium">Tamanho</th>
-                            <th className="px-8 py-4 font-medium text-right">Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recordings.map((rec, i) => (
-                            <tr key={i} className="group hover:bg-white/[0.02] border-b border-white/5 transition-colors">
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40">
-                                    <Video size={18} />
-                                  </div>
-                                  <span className="text-sm font-medium">{rec.name}</span>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5 text-xs text-white/40 font-mono">
-                                {dayjs(rec.time).format('DD/MM/YYYY HH:mm:ss')}
-                              </td>
-                              <td className="px-8 py-5 text-xs text-white/40 font-mono">
-                                {(rec.size / 1024 / 1024).toFixed(2)} MB
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <button 
-                                  onClick={() => setPlayingVideo(rec.url)}
-                                  className="bg-emerald-500 text-black p-2.5 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/10"
-                                >
-                                  <Play size={16} fill="currentColor" />
-                                </button>
-                              </td>
+                      <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="text-[10px] font-mono uppercase tracking-widest text-white/20 border-b border-white/5">
+                              <th className="px-8 py-4 font-medium w-10">
+                                <input 
+                                  type="checkbox" 
+                                  checked={recordings.length > 0 && selectedRecordings.length === recordings.length}
+                                  onChange={toggleAllRecordings}
+                                  className="w-4 h-4 rounded border-white/10 bg-white/5 text-emerald-500 focus:ring-emerald-500"
+                                />
+                              </th>
+                              <th className="px-8 py-4 font-medium">Arquivo</th>
+                              <th className="px-8 py-4 font-medium">Data/Hora</th>
+                              <th className="px-8 py-4 font-medium">Tamanho</th>
+                              <th className="px-8 py-4 font-medium text-right">Ações</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {recordings.map((rec, i) => (
+                              <tr key={i} className={`group hover:bg-white/[0.02] border-b border-white/5 transition-colors ${selectedRecordings.includes(rec.name) ? 'bg-emerald-500/5' : ''}`}>
+                                <td className="px-8 py-5">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={selectedRecordings.includes(rec.name)}
+                                    onChange={() => toggleRecordingSelection(rec.name)}
+                                    className="w-4 h-4 rounded border-white/10 bg-white/5 text-emerald-500 focus:ring-emerald-500"
+                                  />
+                                </td>
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40">
+                                      <Video size={18} />
+                                    </div>
+                                    <span className="text-sm font-medium">{rec.name}</span>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5 text-xs text-white/40 font-mono">
+                                  {dayjs(rec.time).format('DD/MM/YYYY HH:mm:ss')}
+                                </td>
+                                <td className="px-8 py-5 text-xs text-white/40 font-mono">
+                                  {(rec.size / 1024 / 1024).toFixed(2)} MB
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                      onClick={() => setPlayingVideo(rec.url)}
+                                      className="bg-emerald-500 text-black p-2.5 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/10"
+                                      title="Reproduzir"
+                                    >
+                                      <Play size={16} fill="currentColor" />
+                                    </button>
+                                    <button 
+                                      onClick={() => deleteRecording(rec.name)}
+                                      className="bg-red-500/10 text-red-500 p-2.5 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-all"
+                                      title="Excluir"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       {recordings.length === 0 && (
                         <div className="py-32 text-center">
                           <Clock className="mx-auto text-white/10 mb-4" size={64} />

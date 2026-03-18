@@ -127,7 +127,7 @@ async function startRecording(camera: any) {
   activeProcesses.set(camera.id, ffmpeg);
 
   ffmpeg.stderr.on('data', (data) => {
-    // Drain stderr to prevent buffer issues
+    console.log(`FFmpeg recording stderr [cam ${camera.id}]:`, data.toString());
   });
 
   ffmpeg.on('error', (err) => {
@@ -159,21 +159,15 @@ async function updateCameraStatus(id: number, status: string) {
 // Live Streaming Logic (RTSP to MPEG-TS for JSMpeg)
 function setupLiveStream(camera: any) {
   if (liveStreams.has(camera.id)) return;
+  console.log(`Setting up live stream for camera ${camera.id}: ${camera.rtsp_url}`);
 
   const wss = new WebSocketServer({ noServer: true });
   
   const args = [
     '-rtsp_transport', 'tcp',
-    '-reconnect', '1',
-    '-reconnect_at_eof', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '2',
     '-i', camera.rtsp_url,
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',
-    '-s', '640x360',
-    '-b:v', '800k',
-    '-r', '30',
     '-bf', '0',
     '-'
   ];
@@ -181,7 +175,12 @@ function setupLiveStream(camera: any) {
   const ffmpeg = spawn('ffmpeg', args);
   liveStreams.set(camera.id, { process: ffmpeg, wss });
 
+  let firstChunk = true;
   ffmpeg.stdout.on('data', (data) => {
+    if (firstChunk) {
+      console.log(`First chunk of data received for camera ${camera.id}`);
+      firstChunk = false;
+    }
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(data);
@@ -190,7 +189,7 @@ function setupLiveStream(camera: any) {
   });
 
   ffmpeg.stderr.on('data', (data) => {
-    // Drain stderr
+    console.log(`FFmpeg live stderr [cam ${camera.id}]:`, data.toString());
   });
 
   ffmpeg.on('error', (err) => {
@@ -212,7 +211,7 @@ function setupLiveStream(camera: any) {
   });
 
   wss.on('connection', (ws: any) => {
-    console.log(`New viewer for camera ${camera.id}`);
+    console.log(`New viewer for camera ${camera.id}. Total viewers: ${wss.clients.size}`);
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
 
@@ -381,6 +380,38 @@ app.get('/api/recordings/:cameraId', authenticateToken, async (req, res) => {
   res.json(recordings);
 });
 
+app.delete('/api/recordings/:cameraId/:filename', authenticateToken, async (req, res) => {
+  const { cameraId, filename } = req.params;
+  const filePath = path.join(RECORDINGS_DIR, `cam_${cameraId}`, filename);
+  
+  try {
+    if (await fs.pathExists(filePath)) {
+      await fs.remove(filePath);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ message: 'Arquivo não encontrado' });
+    }
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao excluir arquivo' });
+  }
+});
+
+app.post('/api/recordings/bulk-delete', authenticateToken, async (req, res) => {
+  const { recordings } = req.body; // Array of { cameraId, filename }
+  
+  try {
+    for (const rec of recordings) {
+      const filePath = path.join(RECORDINGS_DIR, `cam_${rec.cameraId}`, rec.filename);
+      if (await fs.pathExists(filePath)) {
+        await fs.remove(filePath);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao excluir arquivos' });
+  }
+});
+
 async function startServer() {
   await initDb();
   await fs.ensureDir(RECORDINGS_DIR);
@@ -412,6 +443,7 @@ async function startServer() {
   // Handle WebSocket upgrades for live streaming
   server.on('upgrade', async (request, socket, head) => {
     const { pathname } = new URL(request.url!, `http://${request.headers.host}`);
+    console.log(`Upgrade request for ${pathname}`);
     
     if (pathname.startsWith('/api/stream/')) {
       const cameraId = parseInt(pathname.split('/').pop()!);
