@@ -9,17 +9,23 @@ import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { WebSocketServer, WebSocket } from 'ws';
+import http from 'http';
 
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
 const PORT = 3007; // Production port
 const RECORDINGS_DIR = path.join(process.cwd(), 'recordings');
 const DISK_LIMIT_GB = 100; // Default limit
 const JWT_SECRET = process.env.JWT_SECRET || 'unity-dvr-secret-key-2026';
 
-// Store active FFmpeg processes
+// Store active FFmpeg processes for recording
 const activeProcesses: Map<number, ChildProcess> = new Map();
+
+// Store active FFmpeg processes for live streaming
+const liveStreams: Map<number, { process: ChildProcess, wss: WebSocketServer }> = new Map();
 
 // Database connection (MySQL for Production)
 let db: mysql.Connection;
@@ -81,7 +87,7 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
-// FFmpeg Logic
+// FFmpeg Logic for Recording
 async function startRecording(camera: any) {
   if (activeProcesses.has(camera.id)) return;
 
@@ -105,7 +111,7 @@ async function startRecording(camera: any) {
   activeProcesses.set(camera.id, ffmpeg);
 
   ffmpeg.on('close', (code) => {
-    console.log(`FFmpeg for camera ${camera.id} exited with code ${code}`);
+    console.log(`FFmpeg recording for camera ${camera.id} exited with code ${code}`);
     activeProcesses.delete(camera.id);
     updateCameraStatus(camera.id, 'stopped');
   });
@@ -124,6 +130,51 @@ function stopRecording(cameraId: number) {
 
 async function updateCameraStatus(id: number, status: string) {
   await db.execute('UPDATE cameras SET status = ? WHERE id = ?', [status, id]);
+}
+
+// Live Streaming Logic (RTSP to MPEG-TS for JSMpeg)
+function setupLiveStream(camera: any) {
+  if (liveStreams.has(camera.id)) return;
+
+  const wss = new WebSocketServer({ noServer: true });
+  
+  const args = [
+    '-rtsp_transport', 'tcp',
+    '-i', camera.rtsp_url,
+    '-f', 'mpegts',
+    '-codec:v', 'mpeg1video',
+    '-s', '640x360',
+    '-b:v', '800k',
+    '-r', '30',
+    '-bf', '0',
+    '-'
+  ];
+
+  const ffmpeg = spawn('ffmpeg', args);
+  liveStreams.set(camera.id, { process: ffmpeg, wss });
+
+  ffmpeg.stdout.on('data', (data) => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    });
+  });
+
+  ffmpeg.on('close', () => {
+    console.log(`FFmpeg live stream for camera ${camera.id} stopped`);
+    liveStreams.delete(camera.id);
+  });
+
+  wss.on('connection', (ws) => {
+    console.log(`New viewer for camera ${camera.id}`);
+    ws.on('close', () => {
+      if (wss.clients.size === 0) {
+        console.log(`No more viewers for camera ${camera.id}, stopping stream`);
+        ffmpeg.kill('SIGTERM');
+      }
+    });
+  });
 }
 
 // Disk Management
@@ -276,7 +327,34 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Handle WebSocket upgrades for live streaming
+  server.on('upgrade', async (request, socket, head) => {
+    const { pathname } = new URL(request.url!, `http://${request.headers.host}`);
+    
+    if (pathname.startsWith('/api/stream/')) {
+      const cameraId = parseInt(pathname.split('/').pop()!);
+      const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [cameraId]);
+      
+      if (rows.length > 0) {
+        const camera = rows[0];
+        if (!liveStreams.has(cameraId)) {
+          setupLiveStream(camera);
+        }
+        const stream = liveStreams.get(cameraId);
+        if (stream) {
+          stream.wss.handleUpgrade(request, socket, head, (ws) => {
+            stream.wss.emit('connection', ws, request);
+          });
+        }
+      } else {
+        socket.destroy();
+      }
+    } else {
+      socket.destroy();
+    }
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Unity DVR running on http://localhost:${PORT}`);
   });
 }

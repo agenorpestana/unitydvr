@@ -25,6 +25,48 @@ interface UserData {
 
 type TabType = 'monitoring' | 'recordings' | 'settings';
 
+declare global {
+  interface Window {
+    JSMpeg: any;
+  }
+}
+
+const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !window.JSMpeg) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const url = `${protocol}//${host}/api/stream/${cameraId}`;
+    
+    const player = new window.JSMpeg.Player(url, {
+      canvas: canvasRef.current,
+      autoplay: true,
+      audio: false,
+      loop: false,
+      onVideoDecode: () => {
+        // Video started
+      }
+    });
+
+    return () => {
+      player.destroy();
+    };
+  }, [cameraId]);
+
+  return (
+    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+      <canvas ref={canvasRef} className="w-full h-full object-contain" />
+      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2 z-10">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="text-[10px] font-mono uppercase tracking-widest">{name} - LIVE</span>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('unity_dvr_token'));
   const [user, setUser] = useState<UserData | null>(JSON.parse(localStorage.getItem('unity_dvr_user') || 'null'));
@@ -311,17 +353,9 @@ export default function App() {
                 {cameras.map(cam => (
                   <div key={cam.id} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden group">
                     <div className="aspect-video bg-black flex items-center justify-center relative">
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <div className="text-center space-y-2">
-                        <Camera size={40} className="mx-auto text-white/10" />
-                        <p className="text-[10px] font-mono text-white/20 uppercase tracking-widest">Stream RTSP Ativo</p>
-                      </div>
-                      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
-                        <span className={`w-1.5 h-1.5 rounded-full ${cam.status === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-white/20'}`} />
-                        <span className="text-[10px] font-mono uppercase tracking-widest">{cam.name}</span>
-                      </div>
+                      <LiveStream cameraId={cam.id} name={cam.name} />
                       {cam.status === 'recording' && (
-                        <div className="absolute top-4 right-4 bg-red-500 text-black px-2 py-0.5 rounded text-[10px] font-bold animate-pulse">
+                        <div className="absolute top-4 right-4 bg-red-500 text-black px-2 py-0.5 rounded text-[10px] font-bold animate-pulse z-20">
                           REC
                         </div>
                       )}
