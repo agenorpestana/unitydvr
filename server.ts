@@ -101,20 +101,22 @@ const isAdmin = (req: Request, res: Response, next: NextFunction) => {
 
 // FFmpeg Logic for Recording
 async function startRecording(camera: any) {
-  if (activeProcesses.has(camera.id)) return;
+  console.log(`Attempting to start recording for camera ${camera.id} (${camera.name})`);
+  if (activeProcesses.has(camera.id)) {
+    console.log(`Camera ${camera.id} is already recording.`);
+    return;
+  }
 
   const camDir = path.join(RECORDINGS_DIR, `cam_${camera.id}`);
   await fs.ensureDir(camDir);
 
   const args = [
     '-rtsp_transport', 'tcp',
-    '-reconnect', '1',
-    '-reconnect_at_eof', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '2',
+    '-analyzeduration', '1000000',
+    '-probesize', '1000000',
     '-i', camera.rtsp_url,
     '-c', 'copy',
-    '-map', '0',
+    '-map', '0:v',
     '-f', 'segment',
     '-segment_time', '300',
     '-segment_format', 'mp4',
@@ -136,6 +138,9 @@ async function startRecording(camera: any) {
 
   ffmpeg.on('close', (code) => {
     console.log(`FFmpeg recording for camera ${camera.id} exited with code ${code}`);
+    if (code !== 0 && code !== null) {
+      console.error(`FFmpeg recording for camera ${camera.id} crashed or failed to start.`);
+    }
     activeProcesses.delete(camera.id);
     updateCameraStatus(camera.id, 'stopped');
   });
@@ -144,11 +149,14 @@ async function startRecording(camera: any) {
 }
 
 function stopRecording(cameraId: number) {
+  console.log(`Stopping recording for camera ${cameraId}`);
   const process = activeProcesses.get(cameraId);
   if (process) {
     process.kill('SIGTERM');
     activeProcesses.delete(cameraId);
     updateCameraStatus(cameraId, 'stopped');
+  } else {
+    console.log(`No active recording process found for camera ${cameraId}`);
   }
 }
 
