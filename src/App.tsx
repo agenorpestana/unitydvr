@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock } from 'lucide-react';
+import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import dayjs from 'dayjs';
 
@@ -23,10 +23,13 @@ interface UserData {
   role: string;
 }
 
+type TabType = 'monitoring' | 'recordings' | 'settings';
+
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('unity_dvr_token'));
   const [user, setUser] = useState<UserData | null>(JSON.parse(localStorage.getItem('unity_dvr_user') || 'null'));
   const [cameras, setCameras] = useState<CameraData[]>([]);
+  const [activeTab, setActiveTab] = useState<TabType>('monitoring');
   const [selectedCamera, setSelectedCamera] = useState<CameraData | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -83,10 +86,10 @@ export default function App() {
   }, [token]);
 
   useEffect(() => {
-    if (selectedCamera && token) {
+    if (selectedCamera && activeTab === 'recordings' && token) {
       fetchRecordings(selectedCamera.id);
     }
-  }, [selectedCamera, token]);
+  }, [selectedCamera, activeTab, token]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,14 +150,14 @@ export default function App() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-[#111] border border-white/10 rounded-[2rem] p-10 shadow-2xl"
+          className="w-full max-w-md bg-[#111] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl"
         >
           <div className="flex flex-col items-center mb-10">
-            <div className="w-16 h-16 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-6">
-              <Video className="text-black w-10 h-10" />
+            <div className="w-20 h-20 bg-emerald-500 rounded-[2rem] flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-6">
+              <Video className="text-black w-12 h-12" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight">Unity DVR</h1>
-            <p className="text-sm text-white/40 font-mono uppercase tracking-widest mt-2">Acesso Restrito</p>
+            <p className="text-sm text-white/40 font-mono uppercase tracking-widest mt-2">Segurança Inteligente</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -201,12 +204,12 @@ export default function App() {
               type="submit"
               className="w-full bg-emerald-500 text-black py-4 rounded-2xl font-bold text-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
             >
-              Entrar no Sistema
+              Acessar Painel
             </button>
           </form>
 
-          <p className="text-center text-white/20 text-xs mt-10 font-mono">
-            &copy; 2026 Unity Automações
+          <p className="text-center text-white/20 text-[10px] mt-10 font-mono uppercase tracking-tighter">
+            &copy; 2026 Unity Automações & Sistemas
           </p>
         </motion.div>
       </div>
@@ -227,186 +230,324 @@ export default function App() {
               <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest">Surveillance System</p>
             </div>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="hidden md:flex items-center gap-2 text-xs text-white/40 font-mono">
-              <HardDrive size={14} />
-              <span>DISK: 100GB LIMIT</span>
+
+          {/* Navigation Tabs */}
+          <nav className="hidden md:flex items-center bg-white/5 rounded-2xl p-1 border border-white/5">
+            <button 
+              onClick={() => setActiveTab('monitoring')}
+              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'monitoring' ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-white/60 hover:text-white'}`}
+            >
+              <Monitor size={16} />
+              Monitoramento
+            </button>
+            <button 
+              onClick={() => setActiveTab('recordings')}
+              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'recordings' ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-white/60 hover:text-white'}`}
+            >
+              <Clock size={16} />
+              Gravações
+            </button>
+            <button 
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-white/60 hover:text-white'}`}
+            >
+              <Settings size={16} />
+              Configurações
+            </button>
+          </nav>
+
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-semibold">{user?.email}</p>
+              <p className="text-[10px] text-emerald-500 font-mono uppercase tracking-widest">{user?.role}</p>
             </div>
-            <div className="h-8 w-px bg-white/10 hidden md:block" />
-            <div className="flex items-center gap-4">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-semibold">{user?.email}</p>
-                <p className="text-[10px] text-emerald-500 font-mono uppercase tracking-widest">{user?.role}</p>
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="p-2 rounded-xl bg-white/5 border border-white/10 hover:text-red-500 hover:border-red-500/30 transition-all"
-                title="Sair"
-              >
-                <LogOut size={20} />
-              </button>
-              <button 
-                onClick={() => setShowAddModal(true)}
-                className="bg-white text-black px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-emerald-400 transition-colors shadow-lg shadow-white/5"
-              >
-                <Plus size={18} />
-                <span className="hidden sm:inline">Nova Câmera</span>
-              </button>
-            </div>
+            <button 
+              onClick={handleLogout}
+              className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:text-red-500 hover:border-red-500/30 transition-all"
+              title="Sair"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
+        </div>
+        
+        {/* Mobile Nav */}
+        <div className="md:hidden flex border-t border-white/5 p-2 gap-2 overflow-x-auto">
+          <button onClick={() => setActiveTab('monitoring')} className={`flex-1 flex flex-col items-center py-2 rounded-xl ${activeTab === 'monitoring' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+            <Monitor size={20} />
+            <span className="text-[10px] mt-1">Monitor</span>
+          </button>
+          <button onClick={() => setActiveTab('recordings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl ${activeTab === 'recordings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+            <Clock size={20} />
+            <span className="text-[10px] mt-1">Gravações</span>
+          </button>
+          <button onClick={() => setActiveTab('settings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+            <Settings size={20} />
+            <span className="text-[10px] mt-1">Ajustes</span>
+          </button>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-12 gap-8">
-        {/* Sidebar: Camera List */}
-        <div className="col-span-12 lg:col-span-4 space-y-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-white/40">Câmeras Ativas</h2>
-            <span className="text-[10px] bg-white/5 px-2 py-1 rounded border border-white/10">{cameras.length}</span>
-          </div>
-          
-          <div className="space-y-3">
-            {cameras.map((cam) => (
-              <motion.div 
-                layout
-                key={cam.id}
-                onClick={() => setSelectedCamera(cam)}
-                className={`group p-4 rounded-2xl border transition-all cursor-pointer ${
-                  selectedCamera?.id === cam.id 
-                    ? 'bg-emerald-500/10 border-emerald-500/50' 
-                    : 'bg-white/5 border-white/5 hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      cam.status === 'recording' ? 'bg-emerald-500/20 text-emerald-500 animate-pulse' : 'bg-white/10 text-white/40'
-                    }`}>
-                      <Camera size={24} />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">{cam.name}</h3>
-                      <p className="text-xs text-white/40 truncate max-w-[150px] font-mono">{cam.rtsp_url}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); toggleRecording(cam.id); }}
-                      className={`p-2 rounded-lg ${cam.status === 'recording' ? 'text-red-500 hover:bg-red-500/10' : 'text-emerald-500 hover:bg-emerald-500/10'}`}
-                    >
-                      {cam.status === 'recording' ? <Square size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); deleteCamera(cam.id); }}
-                      className="p-2 rounded-lg text-white/20 hover:text-red-500 hover:bg-red-500/10"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <AnimatePresence mode="wait">
+          {/* TAB: MONITORING */}
+          {activeTab === 'monitoring' && (
+            <motion.div 
+              key="monitoring"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold tracking-tight">Monitoramento em Tempo Real</h2>
+                <div className="flex items-center gap-2 text-xs font-mono text-white/40">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  SISTEMA ONLINE
                 </div>
-              </motion.div>
-            ))}
-            {cameras.length === 0 && (
-              <div className="py-12 text-center border-2 border-dashed border-white/5 rounded-3xl">
-                <p className="text-white/20 text-sm">Nenhuma câmera cadastrada</p>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Main Content: Recordings & Player */}
-        <div className="col-span-12 lg:col-span-8 space-y-6">
-          {selectedCamera ? (
-            <>
-              <div className="bg-white/5 border border-white/5 rounded-3xl overflow-hidden">
-                <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
-                  <div>
-                    <h2 className="text-xl font-bold">{selectedCamera.name}</h2>
-                    <p className="text-xs text-white/40 font-mono mt-1">Gravações Segmentadas (5min)</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {cameras.map(cam => (
+                  <div key={cam.id} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden group">
+                    <div className="aspect-video bg-black flex items-center justify-center relative">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="text-center space-y-2">
+                        <Camera size={40} className="mx-auto text-white/10" />
+                        <p className="text-[10px] font-mono text-white/20 uppercase tracking-widest">Stream RTSP Ativo</p>
+                      </div>
+                      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${cam.status === 'recording' ? 'bg-red-500 animate-pulse' : 'bg-white/20'}`} />
+                        <span className="text-[10px] font-mono uppercase tracking-widest">{cam.name}</span>
+                      </div>
+                      {cam.status === 'recording' && (
+                        <div className="absolute top-4 right-4 bg-red-500 text-black px-2 py-0.5 rounded text-[10px] font-bold animate-pulse">
+                          REC
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4 flex items-center justify-between bg-white/[0.02]">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cam.status === 'recording' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-white/10 text-white/40'}`}>
+                          <Video size={16} />
+                        </div>
+                        <span className="text-sm font-semibold">{cam.name}</span>
+                      </div>
+                      <button 
+                        onClick={() => { setSelectedCamera(cam); setActiveTab('recordings'); }}
+                        className="text-[10px] font-mono uppercase tracking-widest text-white/40 hover:text-emerald-500 transition-colors"
+                      >
+                        Ver Gravações
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${selectedCamera.status === 'recording' ? 'bg-emerald-500 animate-pulse' : 'bg-white/20'}`} />
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-white/40">
-                      {selectedCamera.status === 'recording' ? 'Gravando Agora' : 'Em Espera'}
-                    </span>
-                  </div>
-                </div>
-
-                {playingVideo && (
-                  <div className="aspect-video bg-black relative group">
-                    <video 
-                      src={playingVideo} 
-                      controls 
-                      autoPlay 
-                      className="w-full h-full"
-                    />
-                    <button 
-                      onClick={() => setPlayingVideo(null)}
-                      className="absolute top-4 right-4 bg-black/60 backdrop-blur-md p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <Square size={20} />
-                    </button>
+                ))}
+                {cameras.length === 0 && (
+                  <div className="col-span-full py-32 text-center border-2 border-dashed border-white/5 rounded-[40px]">
+                    <AlertCircle className="mx-auto text-white/10 mb-4" size={48} />
+                    <p className="text-white/40">Nenhuma câmera configurada para monitoramento.</p>
+                    <button onClick={() => setActiveTab('settings')} className="mt-4 text-emerald-500 text-sm font-semibold hover:underline">Ir para Configurações</button>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          )}
 
-                <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="text-[10px] font-mono uppercase tracking-widest text-white/20 border-b border-white/5">
-                        <th className="px-6 py-4 font-medium">Arquivo</th>
-                        <th className="px-6 py-4 font-medium">Data/Hora</th>
-                        <th className="px-6 py-4 font-medium">Tamanho</th>
-                        <th className="px-6 py-4 font-medium text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recordings.map((rec, i) => (
-                        <tr key={i} className="group hover:bg-white/[0.02] border-b border-white/5 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/40">
-                                <Video size={14} />
-                              </div>
-                              <span className="text-sm font-medium">{rec.name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-xs text-white/40 font-mono">
-                            {dayjs(rec.time).format('DD/MM/YYYY HH:mm:ss')}
-                          </td>
-                          <td className="px-6 py-4 text-xs text-white/40 font-mono">
-                            {(rec.size / 1024 / 1024).toFixed(2)} MB
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => setPlayingVideo(rec.url)}
-                              className="text-emerald-500 hover:bg-emerald-500/10 p-2 rounded-lg transition-colors"
-                            >
-                              <Play size={16} fill="currentColor" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {recordings.length === 0 && (
-                    <div className="py-20 text-center">
-                      <Clock className="mx-auto text-white/10 mb-4" size={48} />
-                      <p className="text-white/20 text-sm">Nenhuma gravação encontrada para esta câmera</p>
-                    </div>
-                  )}
+          {/* TAB: RECORDINGS */}
+          {activeTab === 'recordings' && (
+            <motion.div 
+              key="recordings"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="grid grid-cols-12 gap-8"
+            >
+              <div className="col-span-12 lg:col-span-4 space-y-4">
+                <h2 className="text-xl font-bold mb-4">Selecionar Câmera</h2>
+                <div className="space-y-2">
+                  {cameras.map(cam => (
+                    <button 
+                      key={cam.id}
+                      onClick={() => setSelectedCamera(cam)}
+                      className={`w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between ${selectedCamera?.id === cam.id ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-white/5 border-white/5 hover:border-white/20'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Camera size={18} className={selectedCamera?.id === cam.id ? 'text-emerald-500' : 'text-white/40'} />
+                        <span className="font-medium">{cam.name}</span>
+                      </div>
+                      <ChevronRight size={16} className="text-white/20" />
+                    </button>
+                  ))}
                 </div>
               </div>
-            </>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center py-40 border-2 border-dashed border-white/5 rounded-[40px] bg-white/[0.01]">
-              <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mb-6">
-                <Camera size={40} className="text-white/10" />
+
+              <div className="col-span-12 lg:col-span-8 space-y-6">
+                {selectedCamera ? (
+                  <div className="bg-white/5 border border-white/5 rounded-[2.5rem] overflow-hidden">
+                    <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+                      <div>
+                        <h2 className="text-2xl font-bold">{selectedCamera.name}</h2>
+                        <p className="text-xs text-white/40 font-mono mt-1">Histórico de Gravações</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-[10px] font-mono text-white/40 uppercase">Total de Arquivos</p>
+                          <p className="text-sm font-bold">{recordings.length}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {playingVideo && (
+                      <div className="aspect-video bg-black relative group">
+                        <video src={playingVideo} controls autoPlay className="w-full h-full" />
+                        <button onClick={() => setPlayingVideo(null)} className="absolute top-6 right-6 bg-black/60 backdrop-blur-md p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Square size={20} />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="text-[10px] font-mono uppercase tracking-widest text-white/20 border-b border-white/5">
+                            <th className="px-8 py-4 font-medium">Arquivo</th>
+                            <th className="px-8 py-4 font-medium">Data/Hora</th>
+                            <th className="px-8 py-4 font-medium">Tamanho</th>
+                            <th className="px-8 py-4 font-medium text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {recordings.map((rec, i) => (
+                            <tr key={i} className="group hover:bg-white/[0.02] border-b border-white/5 transition-colors">
+                              <td className="px-8 py-5">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40">
+                                    <Video size={18} />
+                                  </div>
+                                  <span className="text-sm font-medium">{rec.name}</span>
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 text-xs text-white/40 font-mono">
+                                {dayjs(rec.time).format('DD/MM/YYYY HH:mm:ss')}
+                              </td>
+                              <td className="px-8 py-5 text-xs text-white/40 font-mono">
+                                {(rec.size / 1024 / 1024).toFixed(2)} MB
+                              </td>
+                              <td className="px-8 py-5 text-right">
+                                <button 
+                                  onClick={() => setPlayingVideo(rec.url)}
+                                  className="bg-emerald-500 text-black p-2.5 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/10"
+                                >
+                                  <Play size={16} fill="currentColor" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {recordings.length === 0 && (
+                        <div className="py-32 text-center">
+                          <Clock className="mx-auto text-white/10 mb-4" size={64} />
+                          <p className="text-white/20 text-sm">Nenhuma gravação encontrada para esta câmera</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center py-40 border-2 border-dashed border-white/5 rounded-[40px] bg-white/[0.01]">
+                    <Video size={60} className="text-white/10 mb-6" />
+                    <h2 className="text-xl font-bold text-white/40">Selecione uma câmera ao lado</h2>
+                    <p className="text-sm text-white/20 mt-2">Para navegar pelo histórico de gravações</p>
+                  </div>
+                )}
               </div>
-              <h2 className="text-xl font-bold text-white/40">Selecione uma câmera</h2>
-              <p className="text-sm text-white/20 mt-2">Para visualizar o status e as gravações</p>
-            </div>
+            </motion.div>
           )}
-        </div>
+
+          {/* TAB: SETTINGS */}
+          {activeTab === 'settings' && (
+            <motion.div 
+              key="settings"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="max-w-4xl mx-auto space-y-8"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold tracking-tight">Configurações do Sistema</h2>
+                  <p className="text-white/40 mt-1">Gerencie suas câmeras e parâmetros de armazenamento.</p>
+                </div>
+                <button 
+                  onClick={() => setShowAddModal(true)}
+                  className="bg-emerald-500 text-black px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  <Plus size={20} />
+                  Adicionar Câmera
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                {cameras.map(cam => (
+                  <div key={cam.id} className="bg-white/5 border border-white/10 rounded-3xl p-6 flex items-center justify-between group hover:bg-white/[0.08] transition-all">
+                    <div className="flex items-center gap-6">
+                      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${cam.status === 'recording' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-white/10 text-white/40'}`}>
+                        <Camera size={32} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold">{cam.name}</h3>
+                        <p className="text-xs text-white/40 font-mono mt-1">{cam.rtsp_url}</p>
+                        <div className="flex items-center gap-4 mt-3">
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${cam.status === 'recording' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                            {cam.status.toUpperCase()}
+                          </span>
+                          <span className="text-[10px] font-mono text-white/20">ID: {cam.id}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => toggleRecording(cam.id)}
+                        className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${cam.status === 'recording' ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                      >
+                        {cam.status === 'recording' ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                        {cam.status === 'recording' ? 'Parar Gravação' : 'Iniciar Gravação'}
+                      </button>
+                      <button 
+                        onClick={() => deleteCamera(cam.id)}
+                        className="p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 transition-all hover:text-white"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                
+                <div className="bg-white/5 border border-white/10 rounded-3xl p-8 mt-8">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
+                      <HardDrive className="text-white/40" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold">Armazenamento</h3>
+                      <p className="text-sm text-white/40">Gerenciamento automático de disco.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-white/40 uppercase">Limite de Disco</span>
+                      <span className="text-emerald-500 font-bold">100 GB</span>
+                    </div>
+                    <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                      <div className="h-full bg-emerald-500 w-[15%] shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                    </div>
+                    <p className="text-[10px] text-white/20 font-mono italic">O sistema remove automaticamente as gravações mais antigas quando o limite é atingido.</p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Add Camera Modal */}
@@ -418,51 +559,53 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowAddModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl"
             >
-              <h2 className="text-2xl font-bold mb-6">Nova Câmera</h2>
+              <h2 className="text-2xl font-bold mb-2">Nova Câmera</h2>
+              <p className="text-white/40 text-sm mb-8">Configure os detalhes do stream RTSP.</p>
+              
               <form onSubmit={addCamera} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-xs font-mono uppercase tracking-widest text-white/40">Nome da Câmera</label>
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome da Câmera</label>
                   <input 
                     required
                     type="text" 
-                    placeholder="Ex: Corredor Principal"
+                    placeholder="Ex: Recepção / Estacionamento"
                     value={newCam.name}
                     onChange={e => setNewCam({...newCam, name: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-mono uppercase tracking-widest text-white/40">URL RTSP</label>
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP</label>
                   <input 
                     required
                     type="text" 
                     placeholder="rtsp://usuario:senha@ip:porta/stream"
                     value={newCam.rtsp_url}
                     onChange={e => setNewCam({...newCam, rtsp_url: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
                   />
                 </div>
-                <div className="flex gap-3 pt-4">
+                <div className="flex gap-4 pt-4">
                   <button 
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-4 py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-colors font-semibold"
+                    className="flex-1 px-6 py-4 rounded-2xl border border-white/10 hover:bg-white/5 transition-all font-bold"
                   >
                     Cancelar
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-3 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 transition-colors font-bold"
+                    className="flex-1 px-6 py-4 rounded-2xl bg-emerald-500 text-black hover:bg-emerald-400 transition-all font-bold shadow-lg shadow-emerald-500/20"
                   >
-                    Salvar Câmera
+                    Salvar
                   </button>
                 </div>
               </form>
