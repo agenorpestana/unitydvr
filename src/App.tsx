@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle } from 'lucide-react';
+import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle, Maximize2, Users, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import dayjs from 'dayjs';
 
@@ -33,6 +33,7 @@ declare global {
 
 const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!canvasRef.current || !window.JSMpeg) return;
@@ -56,13 +57,32 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
     };
   }, [cameraId]);
 
+  const toggleFullscreen = () => {
+    if (containerRef.current) {
+      if (!document.fullscreenElement) {
+        containerRef.current.requestFullscreen().catch(err => {
+          console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    }
+  };
+
   return (
-    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+    <div ref={containerRef} className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden group">
       <canvas ref={canvasRef} className="w-full h-full object-contain" />
       <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2 z-10">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
         <span className="text-[10px] font-mono uppercase tracking-widest">{name} - LIVE</span>
       </div>
+      <button 
+        onClick={toggleFullscreen}
+        className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-md p-2.5 rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:text-black z-20"
+        title="Tela Cheia"
+      >
+        <Maximize2 size={18} />
+      </button>
     </div>
   );
 };
@@ -77,6 +97,12 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newCam, setNewCam] = useState({ name: '', rtsp_url: '' });
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+  
+  // User Management states
+  const [users, setUsers] = useState<any[]>([]);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'user' });
+  const [userError, setUserError] = useState('');
   
   // Login states
   const [loginEmail, setLoginEmail] = useState('');
@@ -108,6 +134,17 @@ export default function App() {
     }
   };
 
+  const fetchUsers = async () => {
+    if (!token || (user?.role !== 'admin' && user?.role !== 'superadmin')) return;
+    try {
+      const res = await fetchWithAuth('/api/users');
+      const data = await res.json();
+      setUsers(data);
+    } catch (err) {
+      console.error('Failed to fetch users', err);
+    }
+  };
+
   const fetchRecordings = async (cameraId: number) => {
     if (!token) return;
     try {
@@ -122,6 +159,7 @@ export default function App() {
   useEffect(() => {
     if (token) {
       fetchCameras();
+      fetchUsers();
       const interval = setInterval(fetchCameras, 5000);
       return () => clearInterval(interval);
     }
@@ -185,6 +223,44 @@ export default function App() {
     if (selectedCamera?.id === id) setSelectedCamera(null);
     fetchCameras();
   };
+
+  const addUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserError('');
+    try {
+      const res = await fetchWithAuth('/api/users', {
+        method: 'POST',
+        body: JSON.stringify(newUser),
+      });
+      if (res.ok) {
+        setNewUser({ email: '', password: '', role: 'user' });
+        setShowAddUserModal(false);
+        fetchUsers();
+      } else {
+        const data = await res.json();
+        setUserError(data.message || 'Erro ao criar usuário');
+      }
+    } catch (err) {
+      setUserError('Erro ao conectar com o servidor');
+    }
+  };
+
+  const deleteUser = async (id: number) => {
+    if (!confirm('Tem certeza que deseja remover este usuário?')) return;
+    try {
+      const res = await fetchWithAuth(`/api/users/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchUsers();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Erro ao excluir usuário');
+      }
+    } catch (err) {
+      console.error('Failed to delete user', err);
+    }
+  };
+
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   if (!token) {
     return (
@@ -289,13 +365,15 @@ export default function App() {
               <Clock size={16} />
               Gravações
             </button>
-            <button 
-              onClick={() => setActiveTab('settings')}
-              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-white/60 hover:text-white'}`}
-            >
-              <Settings size={16} />
-              Configurações
-            </button>
+            {isAdmin && (
+              <button 
+                onClick={() => setActiveTab('settings')}
+                className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-white/60 hover:text-white'}`}
+              >
+                <Settings size={16} />
+                Configurações
+              </button>
+            )}
           </nav>
 
           <div className="flex items-center gap-4">
@@ -323,10 +401,12 @@ export default function App() {
             <Clock size={20} />
             <span className="text-[10px] mt-1">Gravações</span>
           </button>
-          <button onClick={() => setActiveTab('settings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
-            <Settings size={20} />
-            <span className="text-[10px] mt-1">Ajustes</span>
-          </button>
+          {isAdmin && (
+            <button onClick={() => setActiveTab('settings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+              <Settings size={20} />
+              <span className="text-[10px] mt-1">Ajustes</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -499,13 +579,13 @@ export default function App() {
           )}
 
           {/* TAB: SETTINGS */}
-          {activeTab === 'settings' && (
+          {activeTab === 'settings' && isAdmin && (
             <motion.div 
               key="settings"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="max-w-4xl mx-auto space-y-8"
+              className="max-w-4xl mx-auto space-y-12"
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -521,62 +601,120 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
-                {cameras.map(cam => (
-                  <div key={cam.id} className="bg-white/5 border border-white/10 rounded-3xl p-6 flex items-center justify-between group hover:bg-white/[0.08] transition-all">
-                    <div className="flex items-center gap-6">
-                      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${cam.status === 'recording' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-white/10 text-white/40'}`}>
-                        <Camera size={32} />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-bold">{cam.name}</h3>
-                        <p className="text-xs text-white/40 font-mono mt-1">{cam.rtsp_url}</p>
-                        <div className="flex items-center gap-4 mt-3">
-                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${cam.status === 'recording' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                            {cam.status.toUpperCase()}
-                          </span>
-                          <span className="text-[10px] font-mono text-white/20">ID: {cam.id}</span>
+              {/* Cameras List */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <Video size={20} className="text-emerald-500" />
+                  Câmeras Cadastradas
+                </h3>
+                <div className="grid grid-cols-1 gap-4">
+                  {cameras.map(cam => (
+                    <div key={cam.id} className="bg-white/5 border border-white/10 rounded-3xl p-6 flex items-center justify-between group hover:bg-white/[0.08] transition-all">
+                      <div className="flex items-center gap-6">
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${cam.status === 'recording' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-white/10 text-white/40'}`}>
+                          <Camera size={32} />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold">{cam.name}</h3>
+                          <p className="text-xs text-white/40 font-mono mt-1">{cam.rtsp_url}</p>
+                          <div className="flex items-center gap-4 mt-3">
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${cam.status === 'recording' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                              {cam.status.toUpperCase()}
+                            </span>
+                            <span className="text-[10px] font-mono text-white/20">ID: {cam.id}</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => toggleRecording(cam.id)}
+                          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${cam.status === 'recording' ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                        >
+                          {cam.status === 'recording' ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                          {cam.status === 'recording' ? 'Parar Gravação' : 'Iniciar Gravação'}
+                        </button>
+                        <button 
+                          onClick={() => deleteCamera(cam.id)}
+                          className="p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 transition-all hover:text-white"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <button 
-                        onClick={() => toggleRecording(cam.id)}
-                        className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${cam.status === 'recording' ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20'}`}
-                      >
-                        {cam.status === 'recording' ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
-                        {cam.status === 'recording' ? 'Parar Gravação' : 'Iniciar Gravação'}
-                      </button>
-                      <button 
-                        onClick={() => deleteCamera(cam.id)}
-                        className="p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 transition-all hover:text-white"
-                      >
-                        <Trash2 size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+
+              {/* User Management */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Users size={20} className="text-emerald-500" />
+                    Gerenciamento de Usuários
+                  </h3>
+                  <button 
+                    onClick={() => setShowAddUserModal(true)}
+                    className="bg-white/5 border border-white/10 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-white/10 transition-all"
+                  >
+                    <Plus size={16} />
+                    Novo Usuário
+                  </button>
+                </div>
                 
-                <div className="bg-white/5 border border-white/10 rounded-3xl p-8 mt-8">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
-                      <HardDrive className="text-white/40" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold">Armazenamento</h3>
-                      <p className="text-sm text-white/40">Gerenciamento automático de disco.</p>
-                    </div>
+                <div className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[10px] font-mono uppercase tracking-widest text-white/20 border-b border-white/5">
+                        <th className="px-6 py-4">E-mail</th>
+                        <th className="px-6 py-4">Função</th>
+                        <th className="px-6 py-4 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map(u => (
+                        <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                          <td className="px-6 py-4 text-sm">{u.email}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${u.role === 'admin' || u.role === 'superadmin' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                              {u.role.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => deleteUser(u.id)}
+                              disabled={u.email === user?.email || u.role === 'superadmin'}
+                              className="p-2 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Storage Info */}
+              <div className="bg-white/5 border border-white/10 rounded-3xl p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
+                    <HardDrive className="text-white/40" />
                   </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-white/40 uppercase">Limite de Disco</span>
-                      <span className="text-emerald-500 font-bold">100 GB</span>
-                    </div>
-                    <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                      <div className="h-full bg-emerald-500 w-[15%] shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                    </div>
-                    <p className="text-[10px] text-white/20 font-mono italic">O sistema remove automaticamente as gravações mais antigas quando o limite é atingido.</p>
+                  <div>
+                    <h3 className="text-lg font-bold">Armazenamento</h3>
+                    <p className="text-sm text-white/40">Gerenciamento automático de disco.</p>
                   </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className="text-white/40 uppercase">Limite de Disco</span>
+                    <span className="text-emerald-500 font-bold">100 GB</span>
+                  </div>
+                  <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                    <div className="h-full bg-emerald-500 w-[15%] shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                  </div>
+                  <p className="text-[10px] text-white/20 font-mono italic">O sistema remove automaticamente as gravações mais antigas quando o limite é atingido.</p>
                 </div>
               </div>
             </motion.div>
@@ -640,6 +778,88 @@ export default function App() {
                     className="flex-1 px-6 py-4 rounded-2xl bg-emerald-500 text-black hover:bg-emerald-400 transition-all font-bold shadow-lg shadow-emerald-500/20"
                   >
                     Salvar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {showAddUserModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddUserModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl"
+            >
+              <h2 className="text-2xl font-bold mb-2">Novo Usuário</h2>
+              <p className="text-white/40 text-sm mb-8">Defina as credenciais e o nível de acesso.</p>
+              
+              <form onSubmit={addUser} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">E-mail</label>
+                  <input 
+                    required
+                    type="email" 
+                    placeholder="usuario@exemplo.com"
+                    value={newUser.email}
+                    onChange={e => setNewUser({...newUser, email: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Senha</label>
+                  <input 
+                    required
+                    type="password" 
+                    placeholder="••••••••"
+                    value={newUser.password}
+                    onChange={e => setNewUser({...newUser, password: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Função</label>
+                  <select 
+                    value={newUser.role}
+                    onChange={e => setNewUser({...newUser, role: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all appearance-none"
+                  >
+                    <option value="user" className="bg-[#111]">Usuário (Apenas Visualização)</option>
+                    <option value="admin" className="bg-[#111]">Administrador (Acesso Total)</option>
+                  </select>
+                </div>
+
+                {userError && (
+                  <p className="text-red-500 text-xs text-center bg-red-500/10 py-2 rounded-lg border border-red-500/20">
+                    {userError}
+                  </p>
+                )}
+
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAddUserModal(false)}
+                    className="flex-1 px-6 py-4 rounded-2xl border border-white/10 hover:bg-white/5 transition-all font-bold"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-6 py-4 rounded-2xl bg-emerald-500 text-black hover:bg-emerald-400 transition-all font-bold shadow-lg shadow-emerald-500/20"
+                  >
+                    Criar Usuário
                   </button>
                 </div>
               </form>

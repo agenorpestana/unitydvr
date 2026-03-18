@@ -87,6 +87,15 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
+const isAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const user = (req as any).user;
+  if (user && (user.role === 'admin' || user.role === 'superadmin')) {
+    next();
+  } else {
+    res.status(403).json({ message: 'Acesso negado: Apenas administradores' });
+  }
+};
+
 // FFmpeg Logic for Recording
 async function startRecording(camera: any) {
   if (activeProcesses.has(camera.id)) return;
@@ -243,7 +252,7 @@ app.get('/api/cameras', authenticateToken, async (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/cameras', authenticateToken, async (req, res) => {
+app.post('/api/cameras', authenticateToken, isAdmin, async (req, res) => {
   const { name, rtsp_url } = req.body;
   const [result]: any = await db.execute(
     'INSERT INTO cameras (name, rtsp_url) VALUES (?, ?)',
@@ -252,7 +261,7 @@ app.post('/api/cameras', authenticateToken, async (req, res) => {
   res.json({ id: result.insertId, name, rtsp_url, is_active: true, status: 'stopped' });
 });
 
-app.delete('/api/cameras/:id', authenticateToken, async (req, res) => {
+app.delete('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
   const id = parseInt(req.params.id);
   stopRecording(id);
   await db.execute('DELETE FROM cameras WHERE id = ?', [id]);
@@ -260,7 +269,7 @@ app.delete('/api/cameras/:id', authenticateToken, async (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/cameras/:id/toggle', authenticateToken, async (req, res) => {
+app.post('/api/cameras/:id/toggle', authenticateToken, isAdmin, async (req, res) => {
   const id = parseInt(req.params.id);
   const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [id]);
   if (rows.length === 0) return res.status(404).send('Camera not found');
@@ -271,6 +280,40 @@ app.post('/api/cameras/:id/toggle', authenticateToken, async (req, res) => {
   } else {
     await startRecording(camera);
   }
+  res.json({ success: true });
+});
+
+// User Management Routes
+app.get('/api/users', authenticateToken, isAdmin, async (req, res) => {
+  const [rows] = await db.execute('SELECT id, email, role FROM users');
+  res.json(rows);
+});
+
+app.post('/api/users', authenticateToken, isAdmin, async (req, res) => {
+  const { email, password, role } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.execute('INSERT INTO users (email, password, role) VALUES (?, ?, ?)', [email, hashedPassword, role]);
+    res.json({ success: true });
+  } catch (err: any) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      res.status(400).json({ message: 'E-mail já cadastrado' });
+    } else {
+      res.status(500).json({ message: 'Erro ao criar usuário' });
+    }
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, isAdmin, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const user = (req as any).user;
+  
+  // Prevent self-deletion
+  if (user.id === id) {
+    return res.status(400).json({ message: 'Você não pode excluir seu próprio usuário' });
+  }
+
+  await db.execute('DELETE FROM users WHERE id = ?', [id]);
   res.json({ success: true });
 });
 
