@@ -28,15 +28,18 @@ const activeProcesses: Map<number, ChildProcess> = new Map();
 const liveStreams: Map<number, { process: ChildProcess, wss: WebSocketServer }> = new Map();
 
 // Database connection (MySQL for Production)
-let db: mysql.Connection;
+let db: mysql.Pool;
 
 async function initDb() {
   try {
-    db = await mysql.createConnection({
+    db = mysql.createPool({
       host: process.env.DB_HOST || 'localhost',
       user: process.env.DB_USER || 'root',
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'unity_dvr',
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
     });
 
     await db.execute(`
@@ -105,6 +108,10 @@ async function startRecording(camera: any) {
 
   const args = [
     '-rtsp_transport', 'tcp',
+    '-reconnect', '1',
+    '-reconnect_at_eof', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '2',
     '-i', camera.rtsp_url,
     '-c', 'copy',
     '-map', '0',
@@ -118,6 +125,14 @@ async function startRecording(camera: any) {
 
   const ffmpeg = spawn('ffmpeg', args);
   activeProcesses.set(camera.id, ffmpeg);
+
+  ffmpeg.stderr.on('data', (data) => {
+    // Drain stderr to prevent buffer issues
+  });
+
+  ffmpeg.on('error', (err) => {
+    console.error(`FFmpeg recording error for camera ${camera.id}:`, err);
+  });
 
   ffmpeg.on('close', (code) => {
     console.log(`FFmpeg recording for camera ${camera.id} exited with code ${code}`);
@@ -149,6 +164,10 @@ function setupLiveStream(camera: any) {
   
   const args = [
     '-rtsp_transport', 'tcp',
+    '-reconnect', '1',
+    '-reconnect_at_eof', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '2',
     '-i', camera.rtsp_url,
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',
@@ -170,13 +189,33 @@ function setupLiveStream(camera: any) {
     });
   });
 
+  ffmpeg.stderr.on('data', (data) => {
+    // Drain stderr
+  });
+
+  ffmpeg.on('error', (err) => {
+    console.error(`FFmpeg live stream error for camera ${camera.id}:`, err);
+  });
+
+  const interval = setInterval(() => {
+    wss.clients.forEach((ws: any) => {
+      if (ws.isAlive === false) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
   ffmpeg.on('close', () => {
     console.log(`FFmpeg live stream for camera ${camera.id} stopped`);
+    clearInterval(interval);
     liveStreams.delete(camera.id);
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: any) => {
     console.log(`New viewer for camera ${camera.id}`);
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     ws.on('close', () => {
       if (wss.clients.size === 0) {
         console.log(`No more viewers for camera ${camera.id}, stopping stream`);
@@ -400,6 +439,17 @@ async function startServer() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Unity DVR running on http://localhost:${PORT}`);
   });
+
+  // Cleanup on exit
+  const cleanup = () => {
+    console.log('Cleaning up processes...');
+    activeProcesses.forEach(p => p.kill('SIGTERM'));
+    liveStreams.forEach(s => s.process.kill('SIGTERM'));
+    process.exit();
+  };
+
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }
 
 startServer();
