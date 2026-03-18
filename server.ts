@@ -52,14 +52,19 @@ async function initDb() {
     `);
 
     await db.execute(`
-      CREATE TABLE IF NOT EXISTS cameras (
+      CREATE TABLE IF NOT EXISTS settings (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        rtsp_url VARCHAR(500) NOT NULL,
-        is_active BOOLEAN DEFAULT TRUE,
-        status VARCHAR(50) DEFAULT 'stopped'
+        \`key\` VARCHAR(255) NOT NULL UNIQUE,
+        \`value\` TEXT NOT NULL
       )
     `);
+
+    // Seed Storage Limit
+    const [settings]: any = await db.execute('SELECT * FROM settings WHERE `key` = ?', ['storage_limit_gb']);
+    if (settings.length === 0) {
+      await db.execute('INSERT INTO settings (`key`, `value`) VALUES (?, ?)', ['storage_limit_gb', '100']);
+      console.log('Default storage limit seeded');
+    }
 
     // Seed Super Admin
     const [users]: any = await db.execute('SELECT * FROM users WHERE email = ?', ['suporte@unityautomacoes.com.br']);
@@ -163,6 +168,74 @@ function stopRecording(cameraId: number) {
 async function updateCameraStatus(id: number, status: string) {
   await db.execute('UPDATE cameras SET status = ? WHERE id = ?', [status, id]);
 }
+
+// Storage Monitoring Logic
+async function getFolderSize(dir: string): Promise<number> {
+  let size = 0;
+  try {
+    const files = await fs.readdir(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      const stats = await fs.stat(filePath);
+      if (stats.isDirectory()) {
+        size += await getFolderSize(filePath);
+      } else {
+        size += stats.size;
+      }
+    }
+  } catch (err) {
+    console.error('Error calculating folder size:', err);
+  }
+  return size;
+}
+
+async function cleanupOldRecordings() {
+  try {
+    const [rows]: any = await db.execute('SELECT `value` FROM settings WHERE `key` = ?', ['storage_limit_gb']);
+    const limitGB = parseInt(rows[0]?.value || '100');
+    const limitBytes = limitGB * 1024 * 1024 * 1024;
+
+    let currentSize = await getFolderSize(RECORDINGS_DIR);
+    
+    if (currentSize > limitBytes) {
+      console.log(`Storage limit reached (${(currentSize / (1024**3)).toFixed(2)}GB > ${limitGB}GB). Cleaning up...`);
+      
+      // Get all mp4 files across all camera directories
+      const allFiles: { path: string, mtime: Date, size: number }[] = [];
+      const camDirs = await fs.readdir(RECORDINGS_DIR);
+      
+      for (const camDir of camDirs) {
+        const fullCamPath = path.join(RECORDINGS_DIR, camDir);
+        if ((await fs.stat(fullCamPath)).isDirectory()) {
+          const files = await fs.readdir(fullCamPath);
+          for (const file of files) {
+            if (file.endsWith('.mp4')) {
+              const filePath = path.join(fullCamPath, file);
+              const stats = await fs.stat(filePath);
+              allFiles.push({ path: filePath, mtime: stats.mtime, size: stats.size });
+            }
+          }
+        }
+      }
+
+      // Sort by oldest first
+      allFiles.sort((a, b) => a.mtime.getTime() - b.mtime.getTime());
+
+      for (const file of allFiles) {
+        if (currentSize <= limitBytes * 0.9) break; // Stop when we're at 90% of limit
+        
+        await fs.remove(file.path);
+        currentSize -= file.size;
+        console.log(`Deleted old recording: ${file.path}`);
+      }
+    }
+  } catch (err) {
+    console.error('Storage cleanup failed:', err);
+  }
+}
+
+// Run cleanup every 5 minutes
+setInterval(cleanupOldRecordings, 5 * 60 * 1000);
 
 // Live Streaming Logic (RTSP to MPEG-TS for JSMpeg)
 function setupLiveStream(camera: any) {
@@ -361,6 +434,38 @@ app.delete('/api/users/:id', authenticateToken, isAdmin, async (req, res) => {
 
   await db.execute('DELETE FROM users WHERE id = ?', [id]);
   res.json({ success: true });
+});
+
+app.get('/api/storage/status', authenticateToken, async (req, res) => {
+  try {
+    const [rows]: any = await db.execute('SELECT `value` FROM settings WHERE `key` = ?', ['storage_limit_gb']);
+    const limitGB = parseInt(rows[0]?.value || '100');
+    const usedBytes = await getFolderSize(RECORDINGS_DIR);
+    const usedGB = usedBytes / (1024 * 1024 * 1024);
+    
+    res.json({
+      limitGB,
+      usedGB: parseFloat(usedGB.toFixed(2)),
+      freeGB: parseFloat((limitGB - usedGB).toFixed(2)),
+      percentUsed: Math.min(100, (usedGB / limitGB) * 100)
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao obter status do armazenamento' });
+  }
+});
+
+app.post('/api/storage/limit', authenticateToken, isAdmin, async (req, res) => {
+  const { limitGB } = req.body;
+  if (!limitGB || isNaN(limitGB)) return res.status(400).json({ message: 'Limite inválido' });
+  
+  try {
+    await db.execute('UPDATE settings SET `value` = ? WHERE `key` = ?', [limitGB.toString(), 'storage_limit_gb']);
+    res.json({ success: true });
+    // Trigger immediate cleanup check
+    cleanupOldRecordings();
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atualizar limite de armazenamento' });
+  }
 });
 
 app.get('/api/recordings/:cameraId', authenticateToken, async (req, res) => {

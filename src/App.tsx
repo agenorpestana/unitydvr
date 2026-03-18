@@ -100,6 +100,8 @@ export default function App() {
   const [newCam, setNewCam] = useState({ name: '', rtsp_url: '' });
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [selectedRecordings, setSelectedRecordings] = useState<string[]>([]);
+  const [storageStatus, setStorageStatus] = useState<{ limitGB: number, usedGB: number, freeGB: number, percentUsed: number } | null>(null);
+  const [newLimit, setNewLimit] = useState<string>('');
   
   // User Management states
   const [users, setUsers] = useState<any[]>([]);
@@ -203,11 +205,43 @@ export default function App() {
     }
   };
 
+  const fetchStorageStatus = async () => {
+    if (!token) return;
+    try {
+      const res = await fetchWithAuth('/api/storage/status');
+      const data = await res.json();
+      setStorageStatus(data);
+      if (!newLimit) setNewLimit(data.limitGB.toString());
+    } catch (err) {
+      console.error('Failed to fetch storage status', err);
+    }
+  };
+
+  const updateStorageLimit = async () => {
+    if (!token || !newLimit) return;
+    try {
+      const res = await fetchWithAuth('/api/storage/limit', {
+        method: 'POST',
+        body: JSON.stringify({ limitGB: parseInt(newLimit) })
+      });
+      if (res.ok) {
+        fetchStorageStatus();
+        alert('Limite de armazenamento atualizado!');
+      }
+    } catch (err) {
+      console.error('Failed to update storage limit', err);
+    }
+  };
+
   useEffect(() => {
     if (token) {
       fetchCameras();
       fetchUsers();
-      const interval = setInterval(fetchCameras, 5000);
+      fetchStorageStatus();
+      const interval = setInterval(() => {
+        fetchCameras();
+        fetchStorageStatus();
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [token]);
@@ -779,25 +813,67 @@ export default function App() {
 
               {/* Storage Info */}
               <div className="bg-white/5 border border-white/10 rounded-3xl p-8">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
-                    <HardDrive className="text-white/40" />
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
+                      <HardDrive className="text-emerald-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold">Armazenamento</h3>
+                      <p className="text-sm text-white/40">Gerenciamento automático de disco.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold">Armazenamento</h3>
-                    <p className="text-sm text-white/40">Gerenciamento automático de disco.</p>
-                  </div>
+                  
+                  {user?.role === 'admin' || user?.role === 'superadmin' ? (
+                    <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+                      <input 
+                        type="number"
+                        value={newLimit}
+                        onChange={e => setNewLimit(e.target.value)}
+                        className="w-20 bg-transparent border-none text-right font-mono text-sm focus:ring-0"
+                        placeholder="GB"
+                      />
+                      <span className="text-[10px] font-mono text-white/20 uppercase">GB</span>
+                      <button 
+                        onClick={updateStorageLimit}
+                        className="bg-emerald-500 text-black px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all"
+                      >
+                        Definir
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-white/40 uppercase">Limite de Disco</span>
-                    <span className="text-emerald-500 font-bold">100 GB</span>
+
+                {storageStatus ? (
+                  <div className="space-y-4">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-white/40 uppercase">Uso do Disco: {storageStatus.usedGB} GB / {storageStatus.limitGB} GB</span>
+                      <span className={`${storageStatus.percentUsed > 90 ? 'text-red-500' : storageStatus.percentUsed > 75 ? 'text-yellow-500' : 'text-emerald-500'} font-bold`}>
+                        {storageStatus.percentUsed.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${storageStatus.percentUsed}%` }}
+                        className={`h-full shadow-[0_0_10px_rgba(16,185,129,0.5)] transition-all duration-500 ${
+                          storageStatus.percentUsed > 90 ? 'bg-red-500 shadow-red-500/50' : 
+                          storageStatus.percentUsed > 75 ? 'bg-yellow-500 shadow-yellow-500/50' : 
+                          'bg-emerald-500 shadow-emerald-500/50'
+                        }`}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] font-mono text-white/20">
+                      <span>LIVRE: {storageStatus.freeGB} GB</span>
+                      <span>TOTAL: {storageStatus.limitGB} GB</span>
+                    </div>
+                    <p className="text-[10px] text-white/20 font-mono italic">O sistema remove automaticamente as gravações mais antigas quando o limite é atingido.</p>
                   </div>
-                  <div className="h-3 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                    <div className="h-full bg-emerald-500 w-[15%] shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                ) : (
+                  <div className="h-20 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                   </div>
-                  <p className="text-[10px] text-white/20 font-mono italic">O sistema remove automaticamente as gravações mais antigas quando o limite é atingido.</p>
-                </div>
+                )}
               </div>
             </motion.div>
           )}
