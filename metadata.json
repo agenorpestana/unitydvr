@@ -1,0 +1,5 @@
+{
+  "name": "Unity DVR",
+  "description": "Sistema completo de DVR para câmeras IP com gravação contínua via FFmpeg e gerenciamento de disco.",
+  "requestFramePermissions": []
+}
