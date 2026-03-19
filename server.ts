@@ -16,7 +16,7 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const PORT = 3007; // Production port
+const PORT = Number(process.env.PORT) || 3007; // Production port
 const RECORDINGS_DIR = path.join(process.cwd(), 'recordings');
 const DISK_LIMIT_GB = 100; // Default limit
 const JWT_SECRET = process.env.JWT_SECRET || 'unity-dvr-secret-key-2026';
@@ -52,6 +52,16 @@ async function initDb() {
         status VARCHAR(50) DEFAULT 'stopped'
       )
     `);
+
+    // Migration: Add type column if it doesn't exist
+    try {
+      await db.execute('ALTER TABLE cameras ADD COLUMN type VARCHAR(50) DEFAULT "rtsp" AFTER rtsp_url');
+      console.log('Column "type" added to cameras table');
+    } catch (err: any) {
+      if (err.code !== 'ER_DUP_COLUMN_NAME') {
+        console.error('Error adding "type" column:', err);
+      }
+    }
 
     await db.execute(`
       CREATE TABLE IF NOT EXISTS users (
@@ -177,7 +187,12 @@ function stopRecording(cameraId: number) {
 }
 
 async function updateCameraStatus(id: number, status: string) {
-  await db.execute('UPDATE cameras SET status = ? WHERE id = ?', [status, id]);
+  if (!db) return;
+  try {
+    await db.execute('UPDATE cameras SET status = ? WHERE id = ?', [status, id]);
+  } catch (err) {
+    console.error(`Failed to update camera status for ${id}:`, err);
+  }
 }
 
 // Storage Monitoring Logic
@@ -571,9 +586,13 @@ async function startServer() {
 
   // Auto-start active cameras (only if DB is connected)
   if (db) {
-    const [rows]: any = await db.execute('SELECT * FROM cameras WHERE is_active = 1');
-    for (const cam of rows) {
-      startRecording(cam);
+    try {
+      const [rows]: any = await db.execute('SELECT * FROM cameras WHERE is_active = 1');
+      for (const cam of rows) {
+        startRecording(cam);
+      }
+    } catch (err) {
+      console.error('Failed to auto-start cameras:', err);
     }
   }
 
