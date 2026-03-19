@@ -486,24 +486,6 @@ export default function App() {
             </button>
           </div>
         </div>
-        
-        {/* Mobile Nav */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/5 p-2 flex gap-2 z-[60] pb-safe">
-          <button onClick={() => setActiveTab('monitoring')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
-            <Monitor size={20} />
-            <span className="text-[10px] mt-1 font-medium">Monitor</span>
-          </button>
-          <button onClick={() => setActiveTab('recordings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'recordings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
-            <Clock size={20} />
-            <span className="text-[10px] mt-1 font-medium">Gravações</span>
-          </button>
-          {isAdmin && (
-            <button onClick={() => setActiveTab('settings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
-              <Settings size={20} />
-              <span className="text-[10px] mt-1 font-medium">Ajustes</span>
-            </button>
-          )}
-        </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 md:pb-8">
@@ -1164,6 +1146,24 @@ export default function App() {
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
       `}</style>
+
+      {/* Mobile Nav */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/5 p-2 flex gap-2 z-[60] pb-safe">
+        <button onClick={() => setActiveTab('monitoring')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'monitoring' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+          <Monitor size={20} />
+          <span className="text-[10px] mt-1 font-medium">Monitor</span>
+        </button>
+        <button onClick={() => setActiveTab('recordings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'recordings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+          <Clock size={20} />
+          <span className="text-[10px] mt-1 font-medium">Gravações</span>
+        </button>
+        {isAdmin && (
+          <button onClick={() => setActiveTab('settings')} className={`flex-1 flex flex-col items-center py-2 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-500' : 'text-white/40'}`}>
+            <Settings size={20} />
+            <span className="text-[10px] mt-1 font-medium">Ajustes</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
