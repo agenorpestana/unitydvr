@@ -43,6 +43,17 @@ async function initDb() {
     });
 
     await db.execute(`
+      CREATE TABLE IF NOT EXISTS cameras (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        rtsp_url VARCHAR(500) NOT NULL,
+        type VARCHAR(50) DEFAULT 'rtsp',
+        is_active BOOLEAN DEFAULT TRUE,
+        status VARCHAR(50) DEFAULT 'stopped'
+      )
+    `);
+
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         email VARCHAR(255) NOT NULL UNIQUE,
@@ -372,12 +383,41 @@ app.get('/api/cameras', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/cameras', authenticateToken, isAdmin, async (req, res) => {
-  const { name, rtsp_url } = req.body;
+  const { name, rtsp_url, type } = req.body;
   const [result]: any = await db.execute(
-    'INSERT INTO cameras (name, rtsp_url) VALUES (?, ?)',
-    [name, rtsp_url]
+    'INSERT INTO cameras (name, rtsp_url, type) VALUES (?, ?, ?)',
+    [name, rtsp_url, type || 'rtsp']
   );
-  res.json({ id: result.insertId, name, rtsp_url, is_active: true, status: 'stopped' });
+  res.json({ id: result.insertId, name, rtsp_url, type: type || 'rtsp', is_active: true, status: 'stopped' });
+});
+
+app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { name, rtsp_url, type } = req.body;
+  
+  try {
+    const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).send('Camera not found');
+    
+    const oldCamera = rows[0];
+    const urlChanged = oldCamera.rtsp_url !== rtsp_url;
+    
+    await db.execute(
+      'UPDATE cameras SET name = ?, rtsp_url = ?, type = ? WHERE id = ?',
+      [name, rtsp_url, type || 'rtsp', id]
+    );
+    
+    if (urlChanged && activeProcesses.has(id)) {
+      stopRecording(id);
+      // We don't automatically restart here to avoid issues, 
+      // but the user can toggle it back on. 
+      // Or we could restart if it was recording.
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Erro ao atualizar câmera' });
+  }
 });
 
 app.delete('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle, Maximize2, Users, Shield } from 'lucide-react';
+import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle, Maximize2, Users, Shield, Edit } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import dayjs from 'dayjs';
 
@@ -7,6 +7,7 @@ interface CameraData {
   id: number;
   name: string;
   rtsp_url: string;
+  type: 'rtsp' | 'onvif';
   is_active: boolean;
   status: 'recording' | 'stopped' | 'error';
 }
@@ -97,7 +98,9 @@ export default function App() {
   const [selectedCamera, setSelectedCamera] = useState<CameraData | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newCam, setNewCam] = useState({ name: '', rtsp_url: '' });
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCam, setEditCam] = useState<CameraData | null>(null);
+  const [newCam, setNewCam] = useState({ name: '', rtsp_url: '', type: 'rtsp' as 'rtsp' | 'onvif' });
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [selectedRecordings, setSelectedRecordings] = useState<string[]>([]);
   const [storageStatus, setStorageStatus] = useState<{ limitGB: number, usedGB: number, freeGB: number, percentUsed: number } | null>(null);
@@ -288,8 +291,20 @@ export default function App() {
       method: 'POST',
       body: JSON.stringify(newCam),
     });
-    setNewCam({ name: '', rtsp_url: '' });
+    setNewCam({ name: '', rtsp_url: '', type: 'rtsp' });
     setShowAddModal(false);
+    fetchCameras();
+  };
+
+  const updateCamera = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCam) return;
+    await fetchWithAuth(`/api/cameras/${editCam.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(editCam),
+    });
+    setEditCam(null);
+    setShowEditModal(false);
     fetchCameras();
   };
 
@@ -737,11 +752,24 @@ export default function App() {
                             <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${cam.status === 'recording' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}>
                               {cam.status.toUpperCase()}
                             </span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded border bg-white/5 border-white/10 text-white/40 uppercase">
+                              {cam.type || 'RTSP'}
+                            </span>
                             <span className="text-[10px] font-mono text-white/20">ID: {cam.id}</span>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => {
+                            setEditCam(cam);
+                            setShowEditModal(true);
+                          }}
+                          className="p-3 rounded-xl bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 transition-all"
+                          title="Editar Câmera"
+                        >
+                          <Edit size={20} />
+                        </button>
                         <button 
                           onClick={() => toggleRecording(cam.id)}
                           className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${cam.status === 'recording' ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20'}`}
@@ -913,11 +941,30 @@ export default function App() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP</label>
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Protocolo</label>
+                  <div className="flex gap-4">
+                    <button 
+                      type="button"
+                      onClick={() => setNewCam({...newCam, type: 'rtsp'})}
+                      className={`flex-1 py-3 rounded-2xl border transition-all font-mono text-xs ${newCam.type === 'rtsp' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                    >
+                      RTSP
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setNewCam({...newCam, type: 'onvif'})}
+                      className={`flex-1 py-3 rounded-2xl border transition-all font-mono text-xs ${newCam.type === 'onvif' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                    >
+                      ONVIF
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP {newCam.type === 'onvif' ? '(ou IP ONVIF)' : ''}</label>
                   <input 
                     required
                     type="text" 
-                    placeholder="rtsp://usuario:senha@ip:porta/stream"
+                    placeholder={newCam.type === 'rtsp' ? "rtsp://usuario:senha@ip:porta/stream" : "http://ip:porta/onvif/device_service"}
                     value={newCam.rtsp_url}
                     onChange={e => setNewCam({...newCam, rtsp_url: e.target.value})}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
@@ -927,6 +974,87 @@ export default function App() {
                   <button 
                     type="button"
                     onClick={() => setShowAddModal(false)}
+                    className="flex-1 px-6 py-4 rounded-2xl border border-white/10 hover:bg-white/5 transition-all font-bold"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-6 py-4 rounded-2xl bg-emerald-500 text-black hover:bg-emerald-400 transition-all font-bold shadow-lg shadow-emerald-500/20"
+                  >
+                    Salvar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Camera Modal */}
+      <AnimatePresence>
+        {showEditModal && editCam && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEditModal(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl"
+            >
+              <h2 className="text-2xl font-bold mb-2">Editar Câmera</h2>
+              <p className="text-white/40 text-sm mb-8">Atualize as configurações da câmera.</p>
+              
+              <form onSubmit={updateCamera} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome da Câmera</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={editCam.name}
+                    onChange={e => setEditCam({...editCam, name: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Protocolo</label>
+                  <div className="flex gap-4">
+                    <button 
+                      type="button"
+                      onClick={() => setEditCam({...editCam, type: 'rtsp'})}
+                      className={`flex-1 py-3 rounded-2xl border transition-all font-mono text-xs ${editCam.type === 'rtsp' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                    >
+                      RTSP
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setEditCam({...editCam, type: 'onvif'})}
+                      className={`flex-1 py-3 rounded-2xl border transition-all font-mono text-xs ${editCam.type === 'onvif' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                    >
+                      ONVIF
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP / IP</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={editCam.rtsp_url}
+                    onChange={e => setEditCam({...editCam, rtsp_url: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
                     className="flex-1 px-6 py-4 rounded-2xl border border-white/10 hover:bg-white/5 transition-all font-bold"
                   >
                     Cancelar
