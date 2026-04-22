@@ -53,13 +53,25 @@ async function initDb() {
       )
     `);
 
-    // Migration: Add type column if it doesn't exist
-    try {
-      await db.execute('ALTER TABLE cameras ADD COLUMN type VARCHAR(50) DEFAULT "rtsp" AFTER rtsp_url');
-      console.log('Column "type" added to cameras table');
-    } catch (err: any) {
-      if (err.code !== 'ER_DUP_COLUMN_NAME') {
-        console.error('Error adding "type" column:', err);
+    // Migration: Add new columns if they don't exist
+    const columnsToAdd = [
+      { name: 'type', type: 'VARCHAR(50) DEFAULT "rtsp"' },
+      { name: 'cloud_id', type: 'VARCHAR(255)' },
+      { name: 'ip', type: 'VARCHAR(255)' },
+      { name: 'port', type: 'INT DEFAULT 34567' },
+      { name: 'username', type: 'VARCHAR(255)' },
+      { name: 'password', type: 'VARCHAR(255)' },
+      { name: 'channel', type: 'INT DEFAULT 0' }
+    ];
+
+    for (const col of columnsToAdd) {
+      try {
+        await db.execute(`ALTER TABLE cameras ADD COLUMN ${col.name} ${col.type}`);
+        console.log(`Column "${col.name}" added to cameras table`);
+      } catch (err: any) {
+        if (err.code !== 'ER_DUP_COLUMN_NAME') {
+          console.error(`Error adding "${col.name}" column:`, err);
+        }
       }
     }
 
@@ -398,17 +410,17 @@ app.get('/api/cameras', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/cameras', authenticateToken, isAdmin, async (req, res) => {
-  const { name, rtsp_url, type } = req.body;
+  const { name, rtsp_url, type, cloud_id, ip, port, username, password, channel } = req.body;
   const [result]: any = await db.execute(
-    'INSERT INTO cameras (name, rtsp_url, type) VALUES (?, ?, ?)',
-    [name, rtsp_url, type || 'rtsp']
+    'INSERT INTO cameras (name, rtsp_url, type, cloud_id, ip, port, username, password, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, username || null, password || null, channel || 0]
   );
   res.json({ id: result.insertId, name, rtsp_url, type: type || 'rtsp', is_active: true, status: 'stopped' });
 });
 
 app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
   const id = parseInt(req.params.id);
-  const { name, rtsp_url, type } = req.body;
+  const { name, rtsp_url, type, cloud_id, ip, port, username, password, channel } = req.body;
   
   try {
     const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [id]);
@@ -418,8 +430,8 @@ app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
     const urlChanged = oldCamera.rtsp_url !== rtsp_url;
     
     await db.execute(
-      'UPDATE cameras SET name = ?, rtsp_url = ?, type = ? WHERE id = ?',
-      [name, rtsp_url, type || 'rtsp', id]
+      'UPDATE cameras SET name = ?, rtsp_url = ?, type = ?, cloud_id = ?, ip = ?, port = ?, username = ?, password = ?, channel = ? WHERE id = ?',
+      [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, username || null, password || null, channel || 0, id]
     );
     
     if (urlChanged && activeProcesses.has(id)) {

@@ -7,7 +7,13 @@ interface CameraData {
   id: number;
   name: string;
   rtsp_url: string;
-  type: 'rtsp' | 'onvif';
+  type: 'rtsp' | 'onvif' | 'vms';
+  cloud_id?: string;
+  ip?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  channel?: number;
   is_active: boolean;
   status: 'recording' | 'stopped' | 'error';
 }
@@ -100,7 +106,18 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCam, setEditCam] = useState<CameraData | null>(null);
-  const [newCam, setNewCam] = useState({ name: '', rtsp_url: '', type: 'rtsp' as 'rtsp' | 'onvif' });
+  const [newCam, setNewCam] = useState({ 
+    name: '', 
+    rtsp_url: '', 
+    type: 'rtsp' as 'rtsp' | 'onvif' | 'vms',
+    cloud_id: '',
+    ip: '',
+    port: 34567,
+    username: 'admin',
+    password: '',
+    channel: 0,
+    isDualLens: false
+  });
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [selectedRecordings, setSelectedRecordings] = useState<string[]>([]);
   const [storageStatus, setStorageStatus] = useState<{ limitGB: number, usedGB: number, freeGB: number, percentUsed: number } | null>(null);
@@ -287,11 +304,58 @@ export default function App() {
 
   const addCamera = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetchWithAuth('/api/cameras', {
-      method: 'POST',
-      body: JSON.stringify(newCam),
+    
+    const camerasToCreate = [];
+    
+    // Helper to build RTSP URL for XMeye/VMS if not provided
+    const buildUrl = (cam: any) => {
+      if (cam.type === 'vms') {
+        const address = cam.ip || cam.cloud_id;
+        return `rtsp://${cam.username}:${cam.password}@${address}:${cam.port}/user=${cam.username}&password=${cam.password}&channel=${cam.channel}&stream=0.sdp`;
+      }
+      return cam.rtsp_url;
+    };
+
+    if (newCam.isDualLens) {
+      // Create two cameras
+      camerasToCreate.push({
+        ...newCam,
+        name: `${newCam.name} (Lente 1)`,
+        channel: 0,
+        rtsp_url: buildUrl({ ...newCam, channel: 0 })
+      });
+      camerasToCreate.push({
+        ...newCam,
+        name: `${newCam.name} (Lente 2)`,
+        channel: 1,
+        rtsp_url: buildUrl({ ...newCam, channel: 1 })
+      });
+    } else {
+      camerasToCreate.push({
+        ...newCam,
+        rtsp_url: buildUrl(newCam)
+      });
+    }
+
+    for (const cam of camerasToCreate) {
+      await fetchWithAuth('/api/cameras', {
+        method: 'POST',
+        body: JSON.stringify(cam),
+      });
+    }
+
+    setNewCam({ 
+      name: '', 
+      rtsp_url: '', 
+      type: 'rtsp',
+      cloud_id: '',
+      ip: '',
+      port: 34567,
+      username: 'admin',
+      password: '',
+      channel: 0,
+      isDualLens: false
     });
-    setNewCam({ name: '', rtsp_url: '', type: 'rtsp' });
     setShowAddModal(false);
     fetchCameras();
   };
@@ -299,9 +363,17 @@ export default function App() {
   const updateCamera = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editCam) return;
+
+    // Build the URL for VMS type if it's missing or needs update
+    let finalCam = { ...editCam };
+    if (finalCam.type === 'vms') {
+      const address = finalCam.ip || finalCam.cloud_id;
+      finalCam.rtsp_url = `rtsp://${finalCam.username}:${finalCam.password}@${address}:${finalCam.port}/user=${finalCam.username}&password=${finalCam.password}&channel=${finalCam.channel || 0}&stream=0.sdp`;
+    }
+
     await fetchWithAuth(`/api/cameras/${editCam.id}`, {
       method: 'PUT',
-      body: JSON.stringify(editCam),
+      body: JSON.stringify(finalCam),
     });
     setEditCam(null);
     setShowEditModal(false);
@@ -906,53 +978,109 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+              className="relative w-full max-w-lg bg-[#111] border border-white/10 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
-              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Nova Câmera</h2>
-              <p className="text-white/40 text-xs sm:text-sm mb-6 sm:mb-8">Configure os detalhes do stream RTSP.</p>
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Adicionar Dispositivo</h2>
+              <p className="text-white/40 text-xs sm:text-sm mb-6 sm:mb-8">Configure os detalhes da câmera (Suporte a Lente Dupla e VMS).</p>
               
               <form onSubmit={addCamera} className="space-y-4 sm:space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome da Câmera</label>
-                  <input 
-                    required
-                    type="text" 
-                    placeholder="Ex: Recepção / Estacionamento"
-                    value={newCam.name}
-                    onChange={e => setNewCam({...newCam, name: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Protocolo</label>
-                  <div className="flex gap-3 sm:gap-4">
-                    <button 
-                      type="button"
-                      onClick={() => setNewCam({...newCam, type: 'rtsp'})}
-                      className={`flex-1 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border transition-all font-mono text-[10px] sm:text-xs ${newCam.type === 'rtsp' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome do Dispositivo</label>
+                    <input 
+                      required
+                      type="text" 
+                      placeholder="Ex: CASA"
+                      value={newCam.name}
+                      onChange={e => setNewCam({...newCam, name: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Tipo de Conexão</label>
+                    <select 
+                      value={newCam.type}
+                      onChange={e => setNewCam({...newCam, type: e.target.value as any})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base appearance-none"
                     >
-                      RTSP
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setNewCam({...newCam, type: 'onvif'})}
-                      className={`flex-1 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border transition-all font-mono text-[10px] sm:text-xs ${newCam.type === 'onvif' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
-                    >
-                      ONVIF
-                    </button>
+                      <option value="rtsp">RTSP (Direto)</option>
+                      <option value="onvif">ONVIF</option>
+                      <option value="vms">CloudID / XMeye (VMS)</option>
+                    </select>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP {newCam.type === 'onvif' ? '(ou IP ONVIF)' : ''}</label>
-                  <input 
-                    required
-                    type="text" 
-                    placeholder={newCam.type === 'rtsp' ? "rtsp://usuario:senha@ip:porta/stream" : "http://ip:porta/onvif/device_service"}
-                    value={newCam.rtsp_url}
-                    onChange={e => setNewCam({...newCam, rtsp_url: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
-                  />
-                </div>
+
+                {newCam.type === 'vms' ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">IP ou CloudID</label>
+                        <input 
+                          required
+                          type="text" 
+                          placeholder="Ex: 100.64.217.77 ou ID"
+                          value={newCam.ip || newCam.cloud_id}
+                          onChange={e => setNewCam({...newCam, ip: e.target.value, cloud_id: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Porta TCP</label>
+                        <input 
+                          required
+                          type="number" 
+                          value={newCam.port}
+                          onChange={e => setNewCam({...newCam, port: parseInt(e.target.value)})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Usuário</label>
+                        <input 
+                          required
+                          type="text" 
+                          value={newCam.username}
+                          onChange={e => setNewCam({...newCam, username: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Senha</label>
+                        <input 
+                          type="password" 
+                          placeholder="Opcional"
+                          value={newCam.password}
+                          onChange={e => setNewCam({...newCam, password: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
+                      <input 
+                        type="checkbox"
+                        id="dualLens"
+                        checked={newCam.isDualLens}
+                        onChange={e => setNewCam({...newCam, isDualLens: e.target.checked})}
+                        className="w-5 h-5 rounded border-white/10 bg-white/5 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <label htmlFor="dualLens" className="text-sm font-medium cursor-pointer">Câmera de Lente Dupla (Adiciona 2 canais automaticamente)</label>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP {newCam.type === 'onvif' ? '(ou IP ONVIF)' : ''}</label>
+                    <input 
+                      required
+                      type="text" 
+                      placeholder={newCam.type === 'rtsp' ? "rtsp://usuario:senha@ip:porta/stream" : "http://ip:porta/onvif/device_service"}
+                      value={newCam.rtsp_url}
+                      onChange={e => setNewCam({...newCam, rtsp_url: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                    />
+                  </div>
+                )}
                 <div className="flex gap-3 sm:gap-4 pt-2 sm:pt-4">
                   <button 
                     type="button"
@@ -989,51 +1117,95 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+              className="relative w-full max-w-lg bg-[#111] border border-white/10 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
-              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Editar Câmera</h2>
-              <p className="text-white/40 text-xs sm:text-sm mb-6 sm:mb-8">Atualize as configurações da câmera.</p>
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Editar Dispositivo</h2>
+              <p className="text-white/40 text-xs sm:text-sm mb-6 sm:mb-8">Consulte ou atualize os detalhes de conexão.</p>
               
               <form onSubmit={updateCamera} className="space-y-4 sm:space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome da Câmera</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={editCam.name}
-                    onChange={e => setEditCam({...editCam, name: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Protocolo</label>
-                  <div className="flex gap-3 sm:gap-4">
-                    <button 
-                      type="button"
-                      onClick={() => setEditCam({...editCam, type: 'rtsp'})}
-                      className={`flex-1 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border transition-all font-mono text-[10px] sm:text-xs ${editCam.type === 'rtsp' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Nome</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={editCam.name}
+                      onChange={e => setEditCam({...editCam, name: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Tipo de Conexão</label>
+                    <select 
+                      value={editCam.type}
+                      onChange={e => setEditCam({...editCam, type: e.target.value as any})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base appearance-none"
                     >
-                      RTSP
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setEditCam({...editCam, type: 'onvif'})}
-                      className={`flex-1 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border transition-all font-mono text-[10px] sm:text-xs ${editCam.type === 'onvif' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
-                    >
-                      ONVIF
-                    </button>
+                      <option value="rtsp">RTSP (Direto)</option>
+                      <option value="onvif">ONVIF</option>
+                      <option value="vms">CloudID / XMeye (VMS)</option>
+                    </select>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP / IP</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={editCam.rtsp_url}
-                    onChange={e => setEditCam({...editCam, rtsp_url: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
-                  />
-                </div>
+
+                {editCam.type === 'vms' ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">IP ou CloudID</label>
+                        <input 
+                          required
+                          type="text" 
+                          value={editCam.ip || editCam.cloud_id}
+                          onChange={e => setEditCam({...editCam, ip: e.target.value, cloud_id: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Porta TCP</label>
+                        <input 
+                          required
+                          type="number" 
+                          value={editCam.port}
+                          onChange={e => setEditCam({...editCam, port: parseInt(e.target.value)})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Usuário</label>
+                        <input 
+                          required
+                          type="text" 
+                          value={editCam.username}
+                          onChange={e => setEditCam({...editCam, username: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Senha</label>
+                        <input 
+                          type="password" 
+                          value={editCam.password}
+                          onChange={e => setEditCam({...editCam, password: e.target.value})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">URL RTSP / IP</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={editCam.rtsp_url}
+                      onChange={e => setEditCam({...editCam, rtsp_url: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
+                    />
+                  </div>
+                )}
                 <div className="flex gap-3 sm:gap-4 pt-2 sm:pt-4">
                   <button 
                     type="button"
