@@ -149,7 +149,7 @@ async function startRecording(camera: any) {
   await fs.ensureDir(camDir);
 
   const args = [
-    '-rtsp_transport', 'tcp',
+    ...(camera.rtsp_url.startsWith('rtsp') ? ['-rtsp_transport', 'tcp'] : []),
     '-analyzeduration', '1000000',
     '-probesize', '1000000',
     '-i', camera.rtsp_url,
@@ -283,7 +283,7 @@ function setupLiveStream(camera: any) {
   const wss = new WebSocketServer({ noServer: true });
   
   const args = [
-    '-rtsp_transport', 'tcp',
+    ...(camera.rtsp_url.startsWith('rtsp') ? ['-rtsp_transport', 'tcp'] : []),
     '-i', camera.rtsp_url,
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',

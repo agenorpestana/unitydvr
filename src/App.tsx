@@ -307,11 +307,11 @@ export default function App() {
     
     const camerasToCreate = [];
     
-    // Helper to build RTSP URL for XMeye/VMS if not provided
+    // Helper to build URL for XMeye/VMS if not provided
     const buildUrl = (cam: any) => {
       if (cam.type === 'vms') {
         const address = cam.ip || cam.cloud_id;
-        return `rtsp://${cam.username}:${cam.password}@${address}:${cam.port}/user=${cam.username}&password=${cam.password}&channel=${cam.channel}&stream=0.sdp`;
+        return `http://${cam.username}:${cam.password}@${address}:${cam.port}/user=${cam.username}&password=${cam.password}&channel=${cam.channel}&stream=0.sdp`;
       }
       return cam.rtsp_url;
     };
@@ -368,7 +368,7 @@ export default function App() {
     let finalCam = { ...editCam };
     if (finalCam.type === 'vms') {
       const address = finalCam.ip || finalCam.cloud_id;
-      finalCam.rtsp_url = `rtsp://${finalCam.username}:${finalCam.password}@${address}:${finalCam.port}/user=${finalCam.username}&password=${finalCam.password}&channel=${finalCam.channel || 0}&stream=0.sdp`;
+      finalCam.rtsp_url = `http://${finalCam.username}:${finalCam.password}@${address}:${finalCam.port}/user=${finalCam.username}&password=${finalCam.password}&channel=${finalCam.channel || 0}&stream=0.sdp`;
     }
 
     await fetchWithAuth(`/api/cameras/${editCam.id}`, {
