@@ -59,6 +59,8 @@ async function initDb() {
       { name: 'cloud_id', type: 'VARCHAR(255)' },
       { name: 'ip', type: 'VARCHAR(255)' },
       { name: 'port', type: 'INT DEFAULT 34567' },
+      { name: 'stream_port', type: 'INT DEFAULT 554' },
+      { name: 'protocol', type: 'VARCHAR(10) DEFAULT "rtsp"' },
       { name: 'username', type: 'VARCHAR(255)' },
       { name: 'password', type: 'VARCHAR(255)' },
       { name: 'channel', type: 'INT DEFAULT 0' }
@@ -410,17 +412,17 @@ app.get('/api/cameras', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/cameras', authenticateToken, isAdmin, async (req, res) => {
-  const { name, rtsp_url, type, cloud_id, ip, port, username, password, channel } = req.body;
+  const { name, rtsp_url, type, cloud_id, ip, port, stream_port, protocol, username, password, channel } = req.body;
   const [result]: any = await db.execute(
-    'INSERT INTO cameras (name, rtsp_url, type, cloud_id, ip, port, username, password, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, username || null, password || null, channel || 0]
+    'INSERT INTO cameras (name, rtsp_url, type, cloud_id, ip, port, stream_port, protocol, username, password, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, stream_port || 554, protocol || 'rtsp', username || null, password || null, channel || 0]
   );
   res.json({ id: result.insertId, name, rtsp_url, type: type || 'rtsp', is_active: true, status: 'stopped' });
 });
 
 app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
   const id = parseInt(req.params.id);
-  const { name, rtsp_url, type, cloud_id, ip, port, username, password, channel } = req.body;
+  const { name, rtsp_url, type, cloud_id, ip, port, stream_port, protocol, username, password, channel } = req.body;
   
   try {
     const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [id]);
@@ -430,8 +432,8 @@ app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
     const urlChanged = oldCamera.rtsp_url !== rtsp_url;
     
     await db.execute(
-      'UPDATE cameras SET name = ?, rtsp_url = ?, type = ?, cloud_id = ?, ip = ?, port = ?, username = ?, password = ?, channel = ? WHERE id = ?',
-      [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, username || null, password || null, channel || 0, id]
+      'UPDATE cameras SET name = ?, rtsp_url = ?, type = ?, cloud_id = ?, ip = ?, port = ?, stream_port = ?, protocol = ?, username = ?, password = ?, channel = ? WHERE id = ?',
+      [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, stream_port || 554, protocol || 'rtsp', username || null, password || null, channel || 0, id]
     );
     
     if (urlChanged && activeProcesses.has(id)) {

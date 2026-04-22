@@ -11,6 +11,8 @@ interface CameraData {
   cloud_id?: string;
   ip?: string;
   port?: number;
+  stream_port?: number;
+  protocol?: string;
   username?: string;
   password?: string;
   channel?: number;
@@ -112,7 +114,9 @@ export default function App() {
     type: 'rtsp' as 'rtsp' | 'onvif' | 'vms',
     cloud_id: '',
     ip: '',
-    port: 34567,
+    port: 34567, // Discovery/Sofia port
+    stream_port: 554, // RTSP/HTTP port
+    protocol: 'rtsp' as 'rtsp' | 'http',
     username: 'admin',
     password: '',
     channel: 0,
@@ -311,7 +315,9 @@ export default function App() {
     const buildUrl = (cam: any) => {
       if (cam.type === 'vms') {
         const address = cam.ip || cam.cloud_id;
-        return `http://${cam.username}:${cam.password}@${address}:${cam.port}/user=${cam.username}&password=${cam.password}&channel=${cam.channel}&stream=0.sdp`;
+        const proto = cam.protocol || 'rtsp';
+        const port = cam.stream_port || 554;
+        return `${proto}://${cam.username}:${cam.password}@${address}:${port}/user=${cam.username}&password=${cam.password}&channel=${cam.channel}&stream=0.sdp`;
       }
       return cam.rtsp_url;
     };
@@ -1025,14 +1031,48 @@ export default function App() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Porta TCP</label>
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Protocolo do Stream</label>
+                        <div className="flex gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => setNewCam({...newCam, protocol: 'rtsp', stream_port: 554})}
+                            className={`flex-1 py-3 rounded-xl border transition-all font-mono text-[10px] ${newCam.protocol === 'rtsp' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                          >
+                            RTSP (554)
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setNewCam({...newCam, protocol: 'http', stream_port: 8080})}
+                            className={`flex-1 py-3 rounded-xl border transition-all font-mono text-[10px] ${newCam.protocol === 'http' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'bg-white/5 border-white/10 text-white/40'}`}
+                          >
+                            HTTP (8080)
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Porta do Stream</label>
                         <input 
                           required
                           type="number" 
-                          value={newCam.port}
-                          onChange={e => setNewCam({...newCam, port: parseInt(e.target.value)})}
+                          value={newCam.stream_port}
+                          onChange={e => setNewCam({...newCam, stream_port: parseInt(e.target.value)})}
                           className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base font-mono"
                         />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] sm:text-xs font-mono uppercase tracking-widest text-white/40 ml-1">Canais</label>
+                        <div className="flex items-center gap-3 h-[52px] sm:h-[60px] bg-emerald-500/5 rounded-xl sm:rounded-2xl border border-emerald-500/20 px-4">
+                          <input 
+                            type="checkbox"
+                            id="dualLens"
+                            checked={newCam.isDualLens}
+                            onChange={e => setNewCam({...newCam, isDualLens: e.target.checked})}
+                            className="w-5 h-5 rounded border-white/10 bg-white/5 text-emerald-500 focus:ring-emerald-500 font-mono"
+                          />
+                          <label htmlFor="dualLens" className="text-[10px] sm:text-xs font-medium cursor-pointer uppercase opacity-60">Lente Dupla</label>
+                        </div>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1056,16 +1096,6 @@ export default function App() {
                           className="w-full bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-emerald-500 transition-all text-sm sm:text-base"
                         />
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-                      <input 
-                        type="checkbox"
-                        id="dualLens"
-                        checked={newCam.isDualLens}
-                        onChange={e => setNewCam({...newCam, isDualLens: e.target.checked})}
-                        className="w-5 h-5 rounded border-white/10 bg-white/5 text-emerald-500 focus:ring-emerald-500"
-                      />
-                      <label htmlFor="dualLens" className="text-sm font-medium cursor-pointer">Câmera de Lente Dupla (Adiciona 2 canais automaticamente)</label>
                     </div>
                   </>
                 ) : (
