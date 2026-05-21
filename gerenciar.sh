@@ -38,6 +38,8 @@ echo "5) Rastreae (Porta 3002)"
 echo "6) iWedding SaaS (Porta 3005)"
 echo "7) StreamControl (Porta 3006)"
 echo "8) Unity DVR (Porta 3007)"
+echo "9) Unity Tax Manager (Porta 3008)"
+echo "10) VooSimples (Porta 3009)"
 read SYSTEM_CHOICE
 
 case $SYSTEM_CHOICE in
@@ -103,6 +105,22 @@ case $SYSTEM_CHOICE in
     PM2_PREFIX="unity-dvr-api"
     DEFAULT_DB_NAME="unity_dvr"
     DEFAULT_DB_USER="dvr_user"
+    IS_CATEQUESE=0
+    ;;
+  9)
+    SYSTEM_NAME="Unity Tax Manager"
+    APP_PORT=3008
+    PM2_PREFIX="unity-tax-api"
+    DEFAULT_DB_NAME="unity_tax_db"
+    DEFAULT_DB_USER="tax_user"
+    IS_CATEQUESE=0
+    ;;
+  10)
+    SYSTEM_NAME="VooSimples"
+    APP_PORT=3009
+    PM2_PREFIX="voosimples-api"
+    DEFAULT_DB_NAME="voosimples_db"
+    DEFAULT_DB_USER="voos_user"
     IS_CATEQUESE=0
     ;;
   *)
@@ -184,8 +202,21 @@ fi
 
 echo -e "${GREEN}>> Selecionado: $SYSTEM_NAME${NC}"
 
-echo -e "${YELLOW}Digite o domínio (ex: app.seudominio.com):${NC}"
+# Seleção do tipo de ambiente (Localhost ou VPS)
+echo -e "${BLUE}Onde o sistema será instalado?${NC}"
+echo "1) VPS (Nuvem com SSL/HTTPS)"
+echo "2) Localhost (Servidor Local sem SSL)"
+read ENV_CHOICE
+
+if [ "$ENV_CHOICE" == "2" ]; then
+    IS_LOCALHOST=1
+    echo -e "${YELLOW}Digite o domínio ou nome do host local (ex: localhost, localhost.dvr ou url local):${NC}"
+else
+    IS_LOCALHOST=0
+    echo -e "${YELLOW}Digite o domínio (ex: app.seudominio.com):${NC}"
+fi
 read DOMAIN
+
 if [ -z "$DOMAIN" ]; then exit 1; fi
 
 APP_DIR="/var/www/$DOMAIN"
@@ -253,11 +284,17 @@ EOL
     PM2_START_DIR="$APP_DIR/server"
     PM2_SCRIPT="index.js"
 else
-    # Lógica Genérica (ITL, Rastreae, Opa, Unity, iWedding, StreamControl, Unity DVR)
+    # Lógica Genérica
     cd $APP_DIR
 
     # Gerar um JWT_SECRET aleatório se não existir
     SECRET_KEY=$(openssl rand -base64 32)
+    if [ -f .env ]; then
+      EXISTING_SECRET=$(grep JWT_SECRET .env | cut -d '=' -f2 | tr -d '"')
+      if [ ! -z "$EXISTING_SECRET" ]; then
+        SECRET_KEY="$EXISTING_SECRET"
+      fi
+    fi
 
     cat > .env <<EOL
 PORT=${APP_PORT}
@@ -274,6 +311,8 @@ EOL
     # Para sistemas que usam server.ts, usamos tsx se não houver server.js compilado
     if [ -f "server.js" ]; then
         PM2_SCRIPT="server.js"
+    elif [ -f "server/index.ts" ]; then
+        PM2_SCRIPT="server/index.ts"
     else
         PM2_SCRIPT="server.ts"
     fi
@@ -308,6 +347,8 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_cache_bypass \$http_upgrade;
     }
 
@@ -336,18 +377,27 @@ server {
     }
 
     # Inclusão de configurações personalizadas (opcional)
-    # Se você criar um arquivo chamado ${DOMAIN}.custom dentro de /etc/nginx/sites-available/
+    # Se você criar um arquivo chamado \${DOMAIN}.custom dentro de /etc/nginx/sites-available/
     # ele será incluído aqui automaticamente.
-    include /etc/nginx/sites-available/${DOMAIN}.custom*;
+    include /etc/nginx/sites-available/\${DOMAIN}.custom*;
 }
 EOL
 ln -sf $NGINX_CONF /etc/nginx/sites-enabled/
 nginx -t && systemctl restart nginx
 
-# SSL
-certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN --redirect
+# SSL (Apenas se for VPS)
+if [ "$IS_LOCALHOST" -eq 0 ]; then
+    echo -e "${YELLOW}Adquirindo certificado SSL para $DOMAIN...${NC}"
+    certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN --redirect
+else
+    echo -e "${GREEN}Instalação Localhost detectada. Pulando configuração de SSL/Certbot.${NC}"
+fi
 
 echo -e "${GREEN}=== Processo Concluído! ===${NC}"
-echo -e "URL: https://$DOMAIN"
+if [ "$IS_LOCALHOST" -eq 1 ]; then
+    echo -e "URL: http://$DOMAIN"
+else
+    echo -e "URL: https://$DOMAIN"
+fi
 echo -e "Porta: $APP_PORT"
 echo -e "PM2: $PM2_NAME"
