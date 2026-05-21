@@ -249,6 +249,19 @@ fi
 # Instalação de dependências do sistema
 apt update && apt install -y nginx certbot python3-certbot-nginx curl git mysql-server build-essential ffmpeg
 
+# Verificar e instalar Node.js se não estiver presente
+if ! command -v node &> /dev/null; then
+    echo -e "${YELLOW}Node.js não detectado. Instalando Node.js v20...${NC}"
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt install -y nodejs
+fi
+
+# Verificar e instalar PM2 globalmente se não estiver presente
+if ! command -v pm2 &> /dev/null; then
+    echo -e "${YELLOW}PM2 não detectado. Instalando PM2 globalmente...${NC}"
+    npm install -g pm2
+fi
+
 # Configuração MySQL
 if [ ! -z "$DB_PASSWORD" ]; then
     mysql -u root -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
