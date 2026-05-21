@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle, Maximize2, Users, Shield, Edit } from 'lucide-react';
+import { Camera, Play, Square, Trash2, Plus, Database, HardDrive, Clock, ChevronRight, Video, LogOut, User, Lock, LayoutGrid, Monitor, Settings, Search, Filter, AlertCircle, Maximize2, Users, Shield, Edit, Volume2, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import dayjs from 'dayjs';
 
@@ -43,6 +43,8 @@ declare global {
 const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const [isMuted, setIsMuted] = useState(true);
+  const playerRef = React.useRef<any>(null);
 
   useEffect(() => {
     if (!canvasRef.current || !window.JSMpeg) return;
@@ -54,19 +56,39 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
     const player = new window.JSMpeg.Player(url, {
       canvas: canvasRef.current,
       autoplay: true,
-      audio: false,
+      audio: true,
+      volume: 0.0, // Start muted to satisfy browser autoplay policies
       loop: false,
       onVideoDecode: () => {
         console.log(`Video started decoding for camera ${cameraId}`);
       }
     });
 
+    playerRef.current = player;
     console.log(`JSMpeg player initialized for camera ${cameraId} at ${url}`);
 
     return () => {
       player.destroy();
+      playerRef.current = null;
     };
   }, [cameraId]);
+
+  const toggleMute = () => {
+    const player = playerRef.current;
+    if (player) {
+      const nextMuted = !isMuted;
+      setIsMuted(nextMuted);
+      player.volume = nextMuted ? 0.0 : 1.0;
+      if (player.audioOut) {
+        player.audioOut.setVolume(nextMuted ? 0.0 : 1.0);
+        if (!nextMuted && player.audioOut.context && player.audioOut.context.state === 'suspended') {
+          player.audioOut.context.resume().catch((err: any) => {
+            console.warn("Could not auto-resume audio context:", err);
+          });
+        }
+      }
+    }
+  };
 
   const toggleFullscreen = () => {
     if (containerRef.current) {
@@ -87,13 +109,22 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
         <span className="text-[10px] font-mono uppercase tracking-widest">{name} - LIVE</span>
       </div>
-      <button 
-        onClick={toggleFullscreen}
-        className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-md p-2.5 rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:text-black z-20"
-        title="Tela Cheia"
-      >
-        <Maximize2 size={18} />
-      </button>
+      <div className="absolute bottom-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+        <button 
+          onClick={toggleMute}
+          className={`bg-black/60 backdrop-blur-md p-2.5 rounded-xl border border-white/10 transition-colors ${!isMuted ? 'text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/40' : 'text-white/60 hover:bg-white/10'}`}
+          title={isMuted ? "Ativar Áudio" : "Mutar"}
+        >
+          {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+        <button 
+          onClick={toggleFullscreen}
+          className="bg-black/60 backdrop-blur-md p-2.5 rounded-xl border border-white/10 text-white/60 hover:bg-emerald-500 hover:text-black transition-all"
+          title="Tela Cheia"
+        >
+          <Maximize2 size={18} />
+        </button>
+      </div>
     </div>
   );
 };

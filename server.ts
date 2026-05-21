@@ -286,10 +286,21 @@ function setupLiveStream(camera: any) {
   
   const args = [
     ...(camera.rtsp_url.startsWith('rtsp') ? ['-rtsp_transport', 'tcp'] : []),
+    '-analyzeduration', '3000000',
+    '-probesize', '3000000',
     '-i', camera.rtsp_url,
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',
+    '-vf', 'scale=1280:-2,format=yuv420p',
+    '-b:v', '1200k',
+    '-r', '25',
     '-bf', '0',
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-codec:a', 'mp2',
+    '-ar', '44100',
+    '-ac', '1',
+    '-b:a', '96k',
     '-'
   ];
 
