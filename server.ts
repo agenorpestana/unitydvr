@@ -25,7 +25,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'unity-dvr-secret-key-2026';
 const activeProcesses: Map<number, ChildProcess> = new Map();
 
 // Store active FFmpeg processes for live streaming
-const liveStreams: Map<number, { process: ChildProcess, wss: WebSocketServer }> = new Map();
+const liveStreams: Map<number, { process: ChildProcess }> = new Map();
+
+// Store active WebSocket Servers for cameras
+const cameraWSS: Map<number, WebSocketServer> = new Map();
 
 // Database connection (MySQL for Production)
 let db: mysql.Pool;
@@ -147,29 +150,55 @@ async function startRecording(camera: any) {
     return;
   }
 
+  // Disable any standalone live preview to prevent RTSP connection collisions
+  stopLiveStream(camera.id);
+
   const camDir = path.join(RECORDINGS_DIR, `cam_${camera.id}`);
   await fs.ensureDir(camDir);
 
   const args = [
     ...(camera.rtsp_url.startsWith('rtsp') ? ['-rtsp_transport', 'tcp'] : []),
-    '-analyzeduration', '1000000',
-    '-probesize', '1000000',
+    '-analyzeduration', '3000000',
+    '-probesize', '3000000',
     '-i', camera.rtsp_url,
-    '-c', 'copy',
-    '-map', '0:v',
+    
+    // Output 1: Recordings (MP4 Segments with AAC audio tracking)
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-c:v', 'copy',
+    '-c:a', 'aac',
     '-f', 'segment',
     '-segment_time', '300',
     '-segment_format', 'mp4',
     '-strftime', '1',
     '-reset_timestamps', '1',
-    path.join(camDir, '%Y-%m-%d_%H-%M-%S.mp4')
+    path.join(camDir, '%Y-%m-%d_%H-%M-%S.mp4'),
+    
+    // Output 2: Live Stream (MPEG-TS to stdout)
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-f', 'mpegts',
+    '-codec:v', 'mpeg1video',
+    '-vf', 'scale=1280:-2,format=yuv420p',
+    '-b:v', '1200k',
+    '-r', '25',
+    '-bf', '0',
+    '-codec:a', 'mp2',
+    '-ar', '44100',
+    '-ac', '1',
+    '-b:a', '96k',
+    '-'
   ];
 
   const ffmpeg = spawn('ffmpeg', args);
   activeProcesses.set(camera.id, ffmpeg);
 
+  ffmpeg.stdout.on('data', (data) => {
+    broadcastStreamData(camera.id, data);
+  });
+
   ffmpeg.stderr.on('data', (data) => {
-    console.log(`FFmpeg recording stderr [cam ${camera.id}]:`, data.toString());
+    // console.log(`FFmpeg recording stderr [cam ${camera.id}]:`, data.toString());
   });
 
   ffmpeg.on('error', (err) => {
@@ -178,11 +207,13 @@ async function startRecording(camera: any) {
 
   ffmpeg.on('close', (code) => {
     console.log(`FFmpeg recording for camera ${camera.id} exited with code ${code}`);
-    if (code !== 0 && code !== null) {
-      console.error(`FFmpeg recording for camera ${camera.id} crashed or failed to start.`);
-    }
     activeProcesses.delete(camera.id);
     updateCameraStatus(camera.id, 'stopped');
+
+    // If stream has viewers still active, fall back to standalone live stream
+    setTimeout(() => {
+      handleViewerStatus(camera.id);
+    }, 1500);
   });
 
   updateCameraStatus(camera.id, 'recording');
@@ -278,25 +309,97 @@ async function cleanupOldRecordings() {
 setInterval(cleanupOldRecordings, 5 * 60 * 1000);
 
 // Live Streaming Logic (RTSP to MPEG-TS for JSMpeg)
-function setupLiveStream(camera: any) {
-  if (liveStreams.has(camera.id)) return;
-  console.log(`Setting up live stream for camera ${camera.id}: ${camera.rtsp_url}`);
+function getOrCreateWSS(cameraId: number): WebSocketServer {
+  let wss = cameraWSS.get(cameraId);
+  if (!wss) {
+    wss = new WebSocketServer({ noServer: true });
+    cameraWSS.set(cameraId, wss);
+    
+    wss.on('connection', (ws: any) => {
+      console.log(`New viewer for camera ${cameraId}. Total viewers: ${wss!.clients.size}`);
+      ws.isAlive = true;
+      ws.on('pong', () => { ws.isAlive = true; });
 
-  const wss = new WebSocketServer({ noServer: true });
+      handleViewerStatus(cameraId);
+
+      ws.on('close', () => {
+        handleViewerStatus(cameraId);
+      });
+    });
+  }
+  return wss;
+}
+
+function broadcastStreamData(cameraId: number, data: Buffer) {
+  const wss = cameraWSS.get(cameraId);
+  if (wss) {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    });
+  }
+}
+
+async function handleViewerStatus(cameraId: number) {
+  const wss = cameraWSS.get(cameraId);
+  const viewersCount = wss ? wss.clients.size : 0;
+  console.log(`handleViewerStatus camera ${cameraId}: viewersCount = ${viewersCount}`);
+
+  if (viewersCount === 0) {
+    stopLiveStream(cameraId);
+  } else {
+    if (activeProcesses.has(cameraId)) {
+      console.log(`Camera ${cameraId} has ${viewersCount} viewer(s) and is already recording. No standalone stream needed.`);
+      stopLiveStream(cameraId);
+      return;
+    }
+
+    if (!liveStreams.has(cameraId)) {
+      console.log(`Camera ${cameraId} has ${viewersCount} viewer(s) and is NOT recording. Spawning standalone live stream...`);
+      try {
+        const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [cameraId]);
+        if (rows.length > 0) {
+          const camera = rows[0];
+          startStandaloneLiveStream(camera);
+        }
+      } catch (err) {
+        console.error(`Failed to handle viewer status for camera ${cameraId}:`, err);
+      }
+    }
+  }
+}
+
+function stopLiveStream(cameraId: number) {
+  const stream = liveStreams.get(cameraId);
+  if (stream) {
+    console.log(`Killing standalone live stream for camera ${cameraId}`);
+    stream.process.kill('SIGTERM');
+    liveStreams.delete(cameraId);
+  }
+}
+
+function startStandaloneLiveStream(camera: any) {
+  if (liveStreams.has(camera.id)) {
+    console.log(`Standalone live stream for camera ${camera.id} is already running.`);
+    return;
+  }
   
+  console.log(`Spawning standalone live stream for camera ${camera.id} (${camera.name})`);
+
   const args = [
     ...(camera.rtsp_url.startsWith('rtsp') ? ['-rtsp_transport', 'tcp'] : []),
     '-analyzeduration', '3000000',
     '-probesize', '3000000',
     '-i', camera.rtsp_url,
+    '-map', '0:v:0',
+    '-map', '0:a?',
     '-f', 'mpegts',
     '-codec:v', 'mpeg1video',
     '-vf', 'scale=1280:-2,format=yuv420p',
     '-b:v', '1200k',
     '-r', '25',
     '-bf', '0',
-    '-map', '0:v:0',
-    '-map', '0:a?',
     '-codec:a', 'mp2',
     '-ar', '44100',
     '-ac', '1',
@@ -305,56 +408,36 @@ function setupLiveStream(camera: any) {
   ];
 
   const ffmpeg = spawn('ffmpeg', args);
-  liveStreams.set(camera.id, { process: ffmpeg, wss });
+  liveStreams.set(camera.id, { process: ffmpeg });
 
-  let firstChunk = true;
   ffmpeg.stdout.on('data', (data) => {
-    if (firstChunk) {
-      console.log(`First chunk of data received for camera ${camera.id}`);
-      firstChunk = false;
-    }
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    });
+    broadcastStreamData(camera.id, data);
   });
 
   ffmpeg.stderr.on('data', (data) => {
-    console.log(`FFmpeg live stderr [cam ${camera.id}]:`, data.toString());
+    // console.log(`FFmpeg live stderr [cam ${camera.id}]:`, data.toString());
   });
 
   ffmpeg.on('error', (err) => {
-    console.error(`FFmpeg live stream error for camera ${camera.id}:`, err);
+    console.error(`FFmpeg standalone live stream error for camera ${camera.id}:`, err);
   });
 
-  const interval = setInterval(() => {
+  ffmpeg.on('close', (code) => {
+    console.log(`FFmpeg standalone live stream for camera ${camera.id} stopped with code ${code}`);
+    liveStreams.delete(camera.id);
+  });
+}
+
+// Global ping interval to clean up dead WebSockets
+setInterval(() => {
+  cameraWSS.forEach((wss, cameraId) => {
     wss.clients.forEach((ws: any) => {
       if (ws.isAlive === false) return ws.terminate();
       ws.isAlive = false;
       ws.ping();
     });
-  }, 30000);
-
-  ffmpeg.on('close', () => {
-    console.log(`FFmpeg live stream for camera ${camera.id} stopped`);
-    clearInterval(interval);
-    liveStreams.delete(camera.id);
   });
-
-  wss.on('connection', (ws: any) => {
-    console.log(`New viewer for camera ${camera.id}. Total viewers: ${wss.clients.size}`);
-    ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
-
-    ws.on('close', () => {
-      if (wss.clients.size === 0) {
-        console.log(`No more viewers for camera ${camera.id}, stopping stream`);
-        ffmpeg.kill('SIGTERM');
-      }
-    });
-  });
-}
+}, 30000);
 
 // Disk Management
 async function cleanupDisk() {
@@ -647,16 +730,10 @@ async function startServer() {
       const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [cameraId]);
       
       if (rows.length > 0) {
-        const camera = rows[0];
-        if (!liveStreams.has(cameraId)) {
-          setupLiveStream(camera);
-        }
-        const stream = liveStreams.get(cameraId);
-        if (stream) {
-          stream.wss.handleUpgrade(request, socket, head, (ws) => {
-            stream.wss.emit('connection', ws, request);
-          });
-        }
+        const wss = getOrCreateWSS(cameraId);
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit('connection', ws, request);
+        });
       } else {
         socket.destroy();
       }
