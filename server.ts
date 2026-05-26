@@ -191,6 +191,8 @@ async function startRecording(camera: any) {
     '-ar', '44100',
     '-ac', '1',
     '-b:a', '96k',
+    '-mpegts_flags', '+pat_pmt_at_frames',
+    '-pat_period', '0.1',
     '-'
   ];
 
@@ -409,6 +411,8 @@ function startStandaloneLiveStream(camera: any) {
     '-ar', '44100',
     '-ac', '1',
     '-b:a', '96k',
+    '-mpegts_flags', '+pat_pmt_at_frames',
+    '-pat_period', '0.1',
     '-'
   ];
 
@@ -487,6 +491,34 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/recordings', express.static(RECORDINGS_DIR));
+
+// Custom route to serve jsmpeg.min.js locally to prevent CDN or production build failures, ensuring 100% availability on mobile and web view
+app.get('/jsmpeg.min.js', async (req, res) => {
+  const localDir = path.join(process.cwd(), 'public');
+  const localPath = path.join(localDir, 'jsmpeg.min.js');
+  if (await fs.pathExists(localPath)) {
+    res.setHeader('Content-Type', 'application/javascript');
+    return res.sendFile(localPath);
+  }
+  const distPath = path.join(process.cwd(), 'dist', 'jsmpeg.min.js');
+  if (await fs.pathExists(distPath)) {
+    res.setHeader('Content-Type', 'application/javascript');
+    return res.sendFile(distPath);
+  }
+  try {
+    const response = await fetch('https://jsmpeg.com/jsmpeg.min.js');
+    if (response.ok) {
+      const text = await response.text();
+      await fs.ensureDir(localDir);
+      await fs.writeFile(localPath, text);
+      res.setHeader('Content-Type', 'application/javascript');
+      return res.send(text);
+    }
+  } catch (err) {
+    console.error('Failed to dynamically download jsmpeg.min.js inside route:', err);
+  }
+  res.status(404).send('jsmpeg.min.js not found');
+});
 
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
@@ -744,6 +776,18 @@ async function ensureJSMpeg() {
       }
     } catch (err) {
       console.error('Error fetching/storing jsmpeg.min.js:', err);
+    }
+  }
+
+  // Double check and copy to dist folder if it exists, ensuring express.static serves it 100% of the time
+  const distDir = path.join(process.cwd(), 'dist');
+  if (await fs.pathExists(distDir)) {
+    try {
+      await fs.ensureDir(distDir);
+      await fs.copy(localPath, path.join(distDir, 'jsmpeg.min.js'), { overwrite: true });
+      console.log('jsmpeg.min.js copied to dist/ directory.');
+    } catch (err) {
+      console.error('Could not copy jsmpeg to dist:', err);
     }
   }
 }
