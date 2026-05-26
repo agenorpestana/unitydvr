@@ -45,9 +45,24 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState(true);
   const playerRef = React.useRef<any>(null);
+  const [jsmpegLoaded, setJsmpegLoaded] = useState(!!window.JSMpeg);
 
   useEffect(() => {
-    if (!canvasRef.current || !window.JSMpeg) return;
+    if (window.JSMpeg) {
+      setJsmpegLoaded(true);
+      return;
+    }
+    const interval = setInterval(() => {
+      if (window.JSMpeg) {
+        setJsmpegLoaded(true);
+        clearInterval(interval);
+      }
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!canvasRef.current || !window.JSMpeg || !jsmpegLoaded) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
@@ -59,6 +74,8 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
       audio: true,
       volume: 0.0, // Start muted to satisfy browser autoplay policies
       loop: false,
+      videoBufferSize: 1024 * 1024, // 1MB video buffer prevents visual frame dropping & colored static blocks (chapisco colorido)
+      audioBufferSize: 256 * 1024, // 256KB audio buffer
       onVideoDecode: () => {
         console.log(`Video started decoding for camera ${cameraId}`);
       }
@@ -71,7 +88,7 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
       player.destroy();
       playerRef.current = null;
     };
-  }, [cameraId]);
+  }, [cameraId, jsmpegLoaded]);
 
   const toggleMute = () => {
     const player = playerRef.current;
@@ -104,6 +121,12 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden group">
+      {!jsmpegLoaded ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80 p-4 gap-3">
+          <span className="w-6 h-6 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+          <span className="text-[10px] text-zinc-400 font-mono tracking-widest uppercase">Carregando Player...</span>
+        </div>
+      ) : null}
       <canvas ref={canvasRef} className="w-full h-full object-contain" />
       <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2 z-10">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -131,7 +154,14 @@ const LiveStream = ({ cameraId, name }: { cameraId: number, name: string }) => {
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('unity_dvr_token'));
-  const [user, setUser] = useState<UserData | null>(JSON.parse(localStorage.getItem('unity_dvr_user') || 'null'));
+  const [user, setUser] = useState<UserData | null>(() => {
+    try {
+      const stored = localStorage.getItem('unity_dvr_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [cameras, setCameras] = useState<CameraData[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('monitoring');
   const [selectedCamera, setSelectedCamera] = useState<CameraData | null>(null);
@@ -862,13 +892,20 @@ export default function App() {
                         >
                           <Edit size={18} className="sm:w-5 sm:h-5" />
                         </button>
-                        <button 
-                          onClick={() => toggleRecording(cam.id)}
-                          className={`flex-[2] sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-[10px] sm:text-sm transition-all flex items-center justify-center gap-2 ${cam.status === 'recording' ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                        <div 
+                          className={`flex-[2] sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl font-mono text-[10px] sm:text-xs border flex items-center justify-center gap-2 ${
+                            cam.status === 'recording' 
+                              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' 
+                              : cam.status === 'error'
+                              ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                              : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                          }`}
                         >
-                          {cam.status === 'recording' ? <Square size={14} fill="currentColor" className="sm:w-4 sm:h-4" /> : <Play size={14} fill="currentColor" className="sm:w-4 sm:h-4" />}
-                          <span className="whitespace-nowrap">{cam.status === 'recording' ? 'Parar' : 'Gravar'}</span>
-                        </button>
+                          <span className={`w-2 h-2 rounded-full ${cam.status === 'recording' ? 'bg-emerald-500 animate-pulse' : cam.status === 'error' ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                          <span className="whitespace-nowrap uppercase tracking-wider font-semibold">
+                            {cam.status === 'recording' ? 'Gravação Automática' : cam.status === 'error' ? 'Problema de Conexão' : 'Parado'}
+                          </span>
+                        </div>
                         <button 
                           onClick={() => deleteCamera(cam.id)}
                           className="flex-1 sm:flex-none p-2.5 sm:p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 transition-all hover:text-white flex justify-center"

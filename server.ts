@@ -185,6 +185,7 @@ async function startRecording(camera: any) {
     '-vf', 'scale=1280:-2,format=yuv420p',
     '-b:v', '1200k',
     '-r', '25',
+    '-g', '25',
     '-bf', '0',
     '-codec:a', 'mp2',
     '-ar', '44100',
@@ -402,6 +403,7 @@ function startStandaloneLiveStream(camera: any) {
     '-vf', 'scale=1280:-2,format=yuv420p',
     '-b:v', '1200k',
     '-r', '25',
+    '-g', '25',
     '-bf', '0',
     '-codec:a', 'mp2',
     '-ar', '44100',
@@ -514,7 +516,27 @@ app.post('/api/cameras', authenticateToken, isAdmin, async (req, res) => {
     'INSERT INTO cameras (name, rtsp_url, type, cloud_id, ip, port, stream_port, protocol, username, password, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, stream_port || 554, protocol || 'rtsp', username || null, password || null, channel || 0]
   );
-  res.json({ id: result.insertId, name, rtsp_url, type: type || 'rtsp', is_active: true, status: 'stopped' });
+  
+  const createdCamera = {
+    id: result.insertId,
+    name,
+    rtsp_url: rtsp_url || '',
+    type: type || 'rtsp',
+    cloud_id: cloud_id || null,
+    ip: ip || null,
+    port: port || 34567,
+    stream_port: stream_port || 554,
+    protocol: protocol || 'rtsp',
+    username: username || null,
+    password: password || null,
+    channel: channel || 0,
+    is_active: true
+  };
+
+  // Auto-start recording immediately for the added camera
+  startRecording(createdCamera).catch(err => console.error('Failed to start recording for new camera:', err));
+
+  res.json({ id: result.insertId, name, rtsp_url, type: type || 'rtsp', is_active: true, status: 'recording' });
 });
 
 app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
@@ -525,20 +547,34 @@ app.put('/api/cameras/:id', authenticateToken, isAdmin, async (req, res) => {
     const [rows]: any = await db.execute('SELECT * FROM cameras WHERE id = ?', [id]);
     if (rows.length === 0) return res.status(404).send('Camera not found');
     
-    const oldCamera = rows[0];
-    const urlChanged = oldCamera.rtsp_url !== rtsp_url;
-    
     await db.execute(
       'UPDATE cameras SET name = ?, rtsp_url = ?, type = ?, cloud_id = ?, ip = ?, port = ?, stream_port = ?, protocol = ?, username = ?, password = ?, channel = ? WHERE id = ?',
       [name, rtsp_url || '', type || 'rtsp', cloud_id || null, ip || null, port || 34567, stream_port || 554, protocol || 'rtsp', username || null, password || null, channel || 0, id]
     );
+
+    const updatedCamera = {
+      id,
+      name,
+      rtsp_url: rtsp_url || '',
+      type: type || 'rtsp',
+      cloud_id: cloud_id || null,
+      ip: ip || null,
+      port: port || 34567,
+      stream_port: stream_port || 554,
+      protocol: protocol || 'rtsp',
+      username: username || null,
+      password: password || null,
+      channel: channel || 0,
+      is_active: true
+    };
     
-    if (urlChanged && activeProcesses.has(id)) {
+    // Stop previous DVR recording to apply changes or new URL
+    if (activeProcesses.has(id)) {
       stopRecording(id);
-      // We don't automatically restart here to avoid issues, 
-      // but the user can toggle it back on. 
-      // Or we could restart if it was recording.
     }
+    
+    // Auto-restart recording with the updated configurations
+    startRecording(updatedCamera).catch(err => console.error('Failed to restart recording for edited camera:', err));
     
     res.json({ success: true });
   } catch (err) {
@@ -691,21 +727,54 @@ app.post('/api/recordings/bulk-delete', authenticateToken, async (req, res) => {
   }
 });
 
+async function ensureJSMpeg() {
+  const localDir = path.join(process.cwd(), 'public');
+  await fs.ensureDir(localDir);
+  const localPath = path.join(localDir, 'jsmpeg.min.js');
+  if (!(await fs.pathExists(localPath))) {
+    try {
+      console.log('Fetching and caching jsmpeg.min.js locally to prevent CDN/mobile failures...');
+      const response = await fetch('https://jsmpeg.com/jsmpeg.min.js');
+      if (response.ok) {
+        const text = await response.text();
+        await fs.writeFile(localPath, text);
+        console.log('jsmpeg.min.js successfully stored locally.');
+      } else {
+        console.warn('Could not fetch jsmpeg.min.js, status code:', response.status);
+      }
+    } catch (err) {
+      console.error('Error fetching/storing jsmpeg.min.js:', err);
+    }
+  }
+}
+
+async function checkAndRecordActiveCameras() {
+  if (!db) return;
+  try {
+    const [rows]: any = await db.execute('SELECT * FROM cameras WHERE is_active = 1');
+    for (const cam of rows) {
+      if (!activeProcesses.has(cam.id)) {
+        console.log(`[DVR Autocheck] Camera ${cam.id} (${cam.name}) is offline/inactive. Spawning DVR automatic recording...`);
+        startRecording(cam).catch(err => {
+          console.error(`Error spawned on auto-record check for Cam ${cam.id}:`, err);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Failed auto-check for active DVR cameras:', err);
+  }
+}
+
 async function startServer() {
   await initDb();
   await fs.ensureDir(RECORDINGS_DIR);
+  await ensureJSMpeg();
 
-  // Auto-start active cameras (only if DB is connected)
-  if (db) {
-    try {
-      const [rows]: any = await db.execute('SELECT * FROM cameras WHERE is_active = 1');
-      for (const cam of rows) {
-        startRecording(cam);
-      }
-    } catch (err) {
-      console.error('Failed to auto-start cameras:', err);
-    }
-  }
+  // Active DVR check immediately on startup
+  await checkAndRecordActiveCameras();
+  
+  // Continuous DVR check cycle (every 10 seconds)
+  setInterval(checkAndRecordActiveCameras, 10000);
 
   setInterval(cleanupDisk, 10 * 60 * 1000);
 
