@@ -173,6 +173,7 @@ async function startRecording(camera: any) {
     '-f', 'segment',
     '-segment_time', '300',
     '-segment_format', 'mp4',
+    '-segment_format_options', 'movflags=frag_keyframe+empty_moov+default_base_moof',
     '-strftime', '1',
     '-reset_timestamps', '1',
     path.join(camDir, '%Y-%m-%d_%H-%M-%S.mp4'),
